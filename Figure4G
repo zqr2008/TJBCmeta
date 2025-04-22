@@ -1,0 +1,233 @@
+rm(list = ls())
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(sjmisc)
+library(microViz)
+library(ggsignif)
+library(ggpubr)
+library(rstatix)
+library(MetBrewer)
+
+
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/")
+complete_phylo <- readRDS("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/complete_phylo.rds")
+metadata <- as.data.frame(complete_phylo@sam_data)
+class(metadata) <- "data.frame"
+metadata <- metadata %>%
+  rownames_to_column("sampleid")
+
+
+HMOlist <- panlist <- c("Bifidobacterium_bifidum",
+                        "Bacteroides_fragilis",
+                        "Streptococcus_parasanguinis",
+                        "Streptococcus_salivarius",
+                        "Ruminococcus_gnavus",
+                        "Phocaeicola_vulgatus",
+                        "Roseburia_faecis",
+                        "Haemophilus_parainfluenzae",
+                        "Bacteroides_thetaiotaomicron")
+
+PFAM_map <- read.delim("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/PFAM_map")
+
+
+write.table(PFAM_map, file = "PFAM_map.csv",
+            fileEncoding = "GBK",sep = ",",quote = FALSE,row.names = F)
+
+PFAM_map <- PFAM_map %>%
+  dplyr::select(Accession) %>%
+  mutate(Accession = str_replace(Accession,"  ",""))
+
+
+storeresult <- data.frame()
+storefisher <- data.frame()
+for (pp in HMOlist){
+
+successmatrix <- read.delim(paste0("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/pan/successmatrix_",pp,"_pfam"), header=FALSE)
+successmatrix[1,] <- c("Uniref",successmatrix[1,])
+successmatrix[1,2] <- c("PFAM")
+colnames(successmatrix) <- successmatrix[1,]
+successmatrix<- successmatrix[-1,]
+
+
+n <- length(successmatrix$PFAM)
+maxn = 1
+
+for (n in c(1:length(successmatrix$PFAM))){
+  splitfam <- unlist(strsplit(successmatrix$PFAM[n],","))
+  splitlength <- length(splitfam)
+
+  if(splitlength > maxn){
+    maxn = splitlength }
+}
+
+pfamname <- paste("PFAM", c(1:maxn), sep = "_")
+
+
+
+
+organize_PFAM <- successmatrix %>%
+  filter( is.na(PFAM) == FALSE & PFAM !="") %>%
+  separate(PFAM, pfamname, 
+           sep = ",") %>%
+  pivot_longer(cols = pfamname,
+               values_to  = "Accession") %>%
+  filter(is.na(Accession) == FALSE) %>%
+  right_join(PFAM_map, by = "Accession") %>%
+  filter( is.na(Uniref) == FALSE) %>%
+  dplyr::select(Accession,starts_with(pp))
+
+
+samplename <- colnames(organize_PFAM)[str_detect(colnames(organize_PFAM),pp)]
+
+organize_PFAM_group <- organize_PFAM %>%
+  mutate(across(starts_with(pp), ~ as.numeric(.))) %>%
+  group_by(Accession) %>%
+  summarise_all(sum) %>%
+  column_to_rownames("Accession") %>%
+  rotate_df()  %>%
+  rownames_to_column("sampleid") %>%
+  mutate(sampleid = str_split_fixed(sampleid,"_",n=3)[,3]) %>%
+  mutate(sampleid = str_split_fixed(sampleid,"\\.",n=2)[,1])
+
+fortest <- organize_PFAM_group %>%
+  left_join(metadata,by = "sampleid")
+
+
+pfname <- colnames(fortest)[str_detect(colnames(fortest),"PF")]
+
+
+for (ii in pfname){
+  if (length(levels(factor(fortest[,ii])))==1){
+    next
+  }
+  
+  skip_to_next <- FALSE
+  
+  tryCatch(
+    
+    
+  stat.test <- fortest %>%
+    wilcox_test(reformulate("trajcluster", ii )) %>%
+    add_significance("p") %>%
+    mutate(speciesname = pp) %>%
+    mutate(pid = ii),
+  
+
+
+  error = function(e)  { skip_to_next <<- TRUE})
+  if(skip_to_next) { next }     
+  else{
+    
+    if (any(stat.test$p<0.05)){
+      
+      
+      stat.test.p <- stat.test %>%
+        add_xy_position(x = "trajcluster") %>%
+        mutate(color = case_when(group1 == "1" & group2 == "2" ~ "1",
+                                 group1 == "2" & group2 == "3" ~ "2",
+                                 group1 == "1" & group2 == "3" ~ "3")) 
+
+
+     pic <-  fortest %>%
+        drop_na(trajcluster) %>%
+        ggplot(aes(x=trajcluster, y = get(ii),color = trajcluster)) +
+        stat_boxplot()+
+        theme_classic()+
+        theme(plot.title = element_text (size = 14, face = "italic" ))+
+        theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+              axis.title=element_text(size=16,face="bold"), 
+              legend.text = element_text(size=18,face="bold"), 
+              legend.title = element_text(size=18,face="bold"), 
+              axis.text.y =  element_text(face = "bold"),
+              plot.title = element_text(size=20, face="italic", hjust = 0.5))+
+        ggtitle(str_replace(pp,"_"," "))+
+        scale_color_manual(values = c("#e95280","#23b1a5","#E49B0F")) +
+        scale_fill_manual(values = c("#e95280","#23b1a5","#E49B0F"))+
+        labs(color = "Trajectory") +
+        ylab(paste0("Diversity of ",ii))+
+        xlab(paste0(" Trajectory")) +
+       stat_pvalue_manual(
+         stat.test.p, label = "p.signif", tip.length = 0, color = "color",hide.ns = F
+       )
+     
+     print(pic)
+     ggsave(paste0("PFAM_figure/",pp,"_pfam_scatterplot_",ii,".pdf"),width =12,height = 14,units = "cm")
+      
+      
+    }
+     
+    storeresult <- rbind(storeresult,stat.test)
+    
+    storetable <- as.data.frame(table(fortest[,"trajcluster"],fortest[,ii])) 
+      
+    storetablesum <- storetable   %>%
+        group_by(Var1) %>%
+        summarise(sum(Freq)) %>%
+        right_join(storetable, by = "Var1") %>%
+        mutate(percent = 100*Freq/ `sum(Freq)`) %>%
+        dplyr::rename(Trajectory = Var1,
+                      PFAM = Var2)
+        
+      
+      storetable_1 <- fortest %>%
+        filter(trajcluster == "1" | trajcluster == "2")
+      storetable_1$trajcluster <- as.numeric(storetable_1$trajcluster)
+      fisher1 <- pairwise_fisher_test(table(storetable_1[,ii],storetable_1[,"trajcluster"])) %>%
+        mutate(contrast1 = "1",
+               contrast2 = "2")
+      
+      
+      storetable_2 <- fortest %>%
+        filter(trajcluster == "2" | trajcluster == "3")
+      storetable_2$trajcluster <- as.numeric(storetable_2$trajcluster)
+      fisher2 <- pairwise_fisher_test(table(storetable_2[,ii],storetable_2[,"trajcluster"]))  %>%
+        mutate(contrast1 = "2",
+               contrast2 = "3")
+
+      
+      storetable_3 <- fortest %>%
+        filter(trajcluster == "1" | trajcluster == "3")
+      storetable_3$trajcluster <- as.numeric(storetable_3$trajcluster)
+      fisher3 <- pairwise_fisher_test(table(storetable_3[,ii],storetable_3[,"trajcluster"]))  %>%
+        mutate(contrast1 ="1",
+               contrast2 = "3")
+      
+      
+      fisher <- rbind(fisher1,fisher2)
+      fisher <- rbind(fisher,fisher3) %>%
+        mutate(speciesname = pp) %>%
+        dplyr::rename(PFAM1 = group1,
+                      PFAM2 = group2) %>%
+        mutate(PFname = ii)
+      
+      storefisher <- rbind(storefisher,fisher)
+      
+      if(any(fisher$p<0.05)){
+      
+      pic <- storetablesum %>%
+        ggplot(aes(x=Trajectory, y = percent ,fill = PFAM)) +
+        geom_bar(stat="identity")+
+        theme_classic()+
+        theme(plot.title = element_text (size = 14, face = "italic" ))+
+        theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+              axis.title=element_text(size=16,face="bold"), 
+              legend.text = element_text(size=18,face="bold"), 
+              legend.title = element_text(size=18,face="bold"), 
+              axis.text.y =  element_text(face = "bold"),
+              plot.title = element_text(size=20, face="italic", hjust = 0.5))+
+        ggtitle(str_replace(pp,"_"," "))+
+        ylab(paste0("the percentage constituted of ",ii))+
+        xlab(paste0(" Trajectory"))
+
+      print(pic)
+
+      }   
+  }
+  }
+}
+
+
+write.table(storefisher,file = "PFAM_figure/storefisher.csv",
+            fileEncoding = "GBK",sep = ",", row.names = F,col.names = F)
