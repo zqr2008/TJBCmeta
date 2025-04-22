@@ -8,55 +8,41 @@ library(sjmisc)
 library(rstatix)
 library(Maaslin2)
 library(microViz)
-library(MetBrewer)
+
 
 setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/")
 
-transmissibillity_merge_Vaginal.delivery <- read.delim("statistics_results_final/transmissibillity_merge_Vaginal delivery.tsv") %>%
+load("joinanalysis.rda")
+load("DEsig.transmission_event.rda")
+load("t_level.rda")
+
+`%nin%` = Negate(`%in%`)
+
+load("storedf_vaginal.rda")
+storedf_vaginal <- storedf %>%
   mutate(type = "Vaginal delivery")
 
-transmissibillity_merge_C.section.delivery <- read.delim("statistics_results_final/transmissibillity_merge_C-section delivery.tsv") %>%
+
+load("storedf_cection.rda")
+storedf_cection <- storedf %>%
   mutate(type = "C-section")
 
+all_storedf <- rbind(storedf_vaginal,storedf_cection)
 
 
-transmissibillity_merge <- rbind(transmissibillity_merge_Vaginal.delivery,transmissibillity_merge_C.section.delivery)
 
-transmissibillity_merge$Trajectory <- as.factor(transmissibillity_merge$Trajectory )
-
-
-transmissibillity_merge$Visit <- factor(transmissibillity_merge$Visit,
-                                        levels = c("BM1.5","BM6","BM12","BM24","BM36"))
-
-selected_transmissibillity_merge <-   transmissibillity_merge %>%
-  filter(V1 == "Bifidobacterium_bifidum" | V1 =="t__SGB1853" | 
-           V1 =="t__SGB1855" | V1 == "Phocaeicola_vulgatus" | 
-           V1 =="Dysosmobacter_welbionis" | V1 == "Bacteroides_thetaiotaomicron") %>%
-  filter(Visit != "Overall") %>%
-  mutate(V1 = str_replace(V1,"_"," ")) %>%
-  mutate(newgroup = paste0(type," ", Trajectory))
-
-selected_transmissibillity_merge$V1 <- factor(selected_transmissibillity_merge$V1,
-                                              levels = c("Bifidobacterium bifidum",
-                                                         "Phocaeicola vulgatus",
-                                                         "Bacteroides thetaiotaomicron",
-                                                         "t _SGB1855",
-                                                         "t _SGB1853",
-                                                         "Dysosmobacter welbionis"))
-
-selected_transmissibillity_merge %>%
-  ggplot(aes(x= Visit,y= Transmissibility,fill = newgroup,shape= type, color = newgroup)) + 
-  geom_point(size = 5,position=position_dodge(width = .5))+
-  geom_line(aes(group = newgroup),position=position_dodge(width = .5))+
-  scale_x_discrete(labels =c("BM1.5","BM6","BM12","BM24","BM36"))+
-  xlab("Transmissilibity comparisons at different visits between delivery modes and trajectories")+
-  ylab("Transmissibillity") +
-  labs(shape = "Delivery mode") +
-  labs(color = "Group") +
-  guides(fill="none") +
-  scale_color_manual(values =met.brewer("Austria")) +
-  facet_wrap(~V1) + 
+pic3b <- all_storedf %>%
+  ggplot(aes(x= as.numeric(newgroup),y= speciesname,shape= group, color = sign)) + 
+  geom_point(aes(size = abs(contrast)))+
+  geom_text(aes(label = newp),color = "black",size = 8)+
+  xlab("Transmissilibity comparisons at different visits between trajectories")+
+  ylab("Species") +
+  scale_color_manual(values =  c("#00adb5","#ff5722"))+
+  scale_y_discrete(labels = function(x)str_replace(x,"_"," "))+
+  scale_x_discrete(limits =c(1.5,3.5,5.5,7.5,9.5,11.5),labels=c("Overall","BM1.5",
+                                                    "BM6","BM12","BM24","BM36"))+
   theme_classic()+
+  scale_size(range = c(0.01,10))+
   theme (plot.title = element_text (size = 14, face = "bold" ))+
   theme(axis.text=element_text(size=16,face="bold", color = "black"), 
         axis.title=element_text(size=16,face="bold"), 
@@ -69,5 +55,121 @@ selected_transmissibillity_merge %>%
                                           linetype = 2))+
   theme(panel.grid.major.x = element_line(size = 0.5,
                                           linetype = 2))+
-  theme(strip.text = element_text(size = 16,face = "italic")) +
-  theme(strip.background = element_part_rect(side = "b"))
+  theme(strip.text.x = element_text(size = 16)) +
+  theme(strip.background = element_part_rect(side = "b"))+
+  theme(legend.position = "bottom") +
+  labs(shape = "Contrast") +
+  guides(shape=guide_legend(nrow=2))+
+  labs(size = "Transmissilibity difference") +
+  guides(size=guide_legend(nrow=2))+
+  labs(color = "Trajectory status")+
+  guides(color=guide_legend(nrow=2))+
+  facet_wrap(~type)
+  
+
+
+
+
+
+
+
+complete_phylo <- readRDS("complete_phylo.rds")
+
+
+
+offspring_ps <- complete_phylo %>%
+  ps_filter(
+    type == "offspring"
+  ) %>%
+  ps_filter(
+    is.na(trajcluster) == FALSE
+  )
+
+
+
+Metadata_offspring <- as.data.frame((offspring_ps@sam_data))
+class(Metadata_offspring) <- "data.frame"
+
+
+
+
+
+
+significant_results_select_offspring <- read.delim("significant_results_select_offspring")
+significant_results_select_offspring_tlevel <- read.delim("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/offspring_output_t_level/significant_results.tsv") 
+  
+
+significant_results_select_offspring_tlevel <- significant_results_select_offspring_tlevel %>%
+  filter(metadata == "trajcluster") %>%
+  mutate(trajectory = paste0(metadata,value))
+
+
+significant_results_select_offspring <- rbind(significant_results_select_offspring,significant_results_select_offspring_tlevel) %>%
+  filter(feature != "Bacteroides_fragilis")
+
+
+anotate <-  significant_results_select_offspring %>%
+  mutate(`Abundance level` = case_when(qval  > 0.1 ~ "Not significant",
+                                       value == "traj1" & coef > 0 ~ "Enriched in Trajectory 1",
+                                       value == "traj1" & coef < 0 ~ "Enriched in Trajectory 2",
+                                       value == "traj3" & coef < 0 ~ "Enriched in Trajectory 2",
+                                       value == "traj3" & coef > 0 ~ "Enriched in Trajectory 3"
+                                       )) %>%
+  dplyr::filter(feature != "Blautia_hansenii" &
+                feature != "Enterococcus_faecium" &
+                feature != "Enterococcus_casseliflavus" &
+                feature != "Klebsiella_oxytoca"  ) %>%
+  distinct(feature,.keep_all = T) %>%
+  dplyr::filter(feature %in% levels(factor(all_storedf$speciesname)))
+
+
+
+
+anotate$feature <- factor(anotate$feature, levels = levels(factor(all_storedf$speciesname)))
+
+anotate <- anotate %>%
+  mutate(length =  1) %>%
+  mutate(`Prevalence(%)` =  100*(`N.not.0`/N))
+
+
+anotate1 <- anotate  %>%
+  ggplot(aes(x =feature, y= `Prevalence(%)`)) + 
+  geom_bar(position="stack", stat="identity")+
+  coord_flip()+
+  theme_void()+
+  xlab("")+
+  ylab("Prevalence(%)")+
+  theme(axis.title.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        axis.text.x=element_text(size=10,face="bold", color = "black"),
+        axis.title.x=element_text(size=16,face="bold", color = "black"))
+
+
+
+anotate2 <- anotate  %>%
+  ggplot(aes(x =feature, y= length,fill =`Abundance level`)) + 
+  geom_bar(position="stack", stat="identity")+
+  coord_flip()+
+  theme_void()+
+  scale_fill_manual(values = c("#e95280","#23b1a5","#E49B0F","grey")) +
+  xlab("")+
+  ylab("")+
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        legend.text = element_text(size=14,face="bold"), 
+        legend.title = element_text(size=16,face="bold"))+
+  theme(legend.position = "top") +
+  guides(fill=guide_legend(nrow=4))+
+  labs(fill = "Abundance level") 
+  
+
+
+
+design <- "AAAAAAAAAAAAAAAABCCCC"
+
+
+pic3b  + anotate2 + anotate1 + plot_layout(design = design)
+ggsave("figure3b.pdf",width = 15, height = 8)
+
+
