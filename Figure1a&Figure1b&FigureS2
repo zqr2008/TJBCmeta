@@ -1,0 +1,214 @@
+rm(list = ls())
+library(tidyverse)
+library(ggplot2)
+library(hrbrthemes)
+library(viridis)
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/rda18878final")
+
+
+
+BM$visittype <- factor(BM$visittype,levels = c("BM1.5","BM6","BM12","BM24","BM36"))
+
+BM_filter <- BM %>% 
+  dplyr::filter(V1 == "delivery_mode_kid" | V1 == "feeding_type_28days" |
+                V1 == "LGA" | V1 == "SGA" | V1 == "LBW" | V1 == "macrosomia" |
+                  V1 == "preterm" | V1 == "embryo_number_kid" | V1 == "BMI_mo"| 
+                  V1 == "edu_fa" |
+                  V1 == "edu_mo" | V1 == "family_income" | 
+                  V1 == "coffee_freq_afterpreg" | 
+                  V1 == "sechand_smoking_mo_afterpreg" |
+                  V1 == "trajcluster") %>%
+  mutate(newname = case_when( V1 ==  "delivery_mode_kid" ~ "Delivery mode",
+                              V1 == "feeding_type_28days" ~ "Feeding type",
+                              V1 == "LGA" ~ "LGA",
+                              V1 == "SGA" ~ "SGA",
+                              V1 == "LBW" ~ "LBW",
+                              V1 == "macrosomia" ~ "Macrosomia",
+                              V1 == "embryo_number_kid" ~ "Embryo number",
+                              V1 == "BMI_mo" ~ "Prepregnancy BMI",
+                              V1 == "preterm" ~ "Preterm",
+                              V1 == "edu_fa" ~ "Education level of father",
+                              V1 == "edu_mo" ~ "Education level of mother",
+                              V1 == "family_income" ~ "Family income",
+                              V1 == "coffee_freq_afterpreg" ~ "Coffee drinking frequency after pregnency",
+                              V1 == "family_income" ~ "Family income",
+                              V1 == "sechand_smoking_mo_afterpreg" ~ "Exposure to Secondhand Smoke Post-Pregnancy",
+                              V1 == "trajcluster" ~ "Trajectory"
+                              ))
+                              
+  
+  
+target <- c("Delivery mode", "Feeding type","LGA","SGA",
+            "LBW", "Macrosomia","Embryo number", "Prepregnancy BMI","Preterm",
+            "Education level of father","Education level of mother","Family income",
+            "Coffee drinking frequency after pregnency","Exposure to Secondhand Smoke Post-Pregnancy","Trajectory")
+
+  
+BM_pic <- BM_filter %>%  ggplot(aes(x = factor(newname,level = target), 
+                                    y = visittype,size = V2*100,
+                                    fill=Significance)) +
+  scale_size(range = c(5, 12), name="Variation explained \n (partial R-squared)") +
+  geom_point(aes(size = V2),shape=21) +
+  scale_fill_manual(values = c("white","#630a10","#f7d098")) +
+  scale_color_manual(values = c("white","#630a10","#f7d098")) +
+  ylab("Visit") +
+  xlab("Phenotype") +
+  ggtitle(label = "")+
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=18,face="bold"), 
+        legend.text = element_text(size=24,face="bold"), 
+        legend.title = element_text(size=24,face="bold"), 
+
+        plot.title = element_text(size=20, face="bold", hjust = 0.5), 
+        axis.text.x = element_text(size=18,face="bold",angle = 45, hjust = 1))+
+  theme(axis.text.y   = element_text(size=14),
+        axis.text.x   = element_text(size=14),
+        axis.title.y  = element_text(size=14),
+        axis.title.x  = element_text(size=14),
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=1))+ 
+        guides(fill = guide_legend(override.aes = list(size=8)))
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/Figure1B.pdf",width = 10, height = 8)
+
+
+
+
+BM_supp <- BM %>% 
+ dplyr::filter(str_detect(V1,"weight|height|zhaz|zwaz|zwhz")== TRUE &
+                str_detect(V1,"_5|_4|_3|_2|_1")== TRUE  &
+                str_detect(V1,"_10|_11")== FALSE) %>%
+  ggplot(aes(x = V1, y = visittype, size = V2*100,
+             fill=Significance)) +
+  scale_size(range = c(5, 14), name="Variation explained \n (partial R-squared)") +
+  geom_point(aes(size = V2),shape=21) +
+  scale_fill_manual(values = c("white","#630a10","#f7d098")) +
+  scale_color_manual(values = c("white","#630a10","#f7d098")) +
+  ylab("Visit") +
+  xlab("Phenotype") +
+  ggtitle(label = "")+
+   theme (plot.title = element_text (size = 14, face = "bold" ))+
+   theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+         axis.title=element_text(size=18,face="bold"), 
+         legend.text = element_text(size=24,face="bold"), 
+         legend.title = element_text(size=24,face="bold"), 
+         legend.position = "bottom",
+         plot.title = element_text(size=20, face="bold", hjust = 0.5), 
+         axis.text.x = element_text(size=18,face="bold",angle = 45, hjust = 1))+
+   theme(axis.text.y   = element_text(size=14),
+         axis.text.x   = element_text(size=14),
+         axis.title.y  = element_text(size=14),
+         axis.title.x  = element_text(size=14),
+         panel.background = element_blank(),
+         panel.grid.major = element_blank(), 
+         panel.grid.minor = element_blank(),
+         axis.line = element_line(colour = "black"),
+         panel.border = element_rect(colour = "black", fill=NA, linewidth=1))+ 
+   guides(fill = guide_legend(override.aes = list(size=8)))
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/FigureS2A.pdf",width = 16, height = 8)
+
+
+
+
+load("MG.rda")
+
+MG$visittype <- factor(MG$visittype,levels = c("MG1","MG2","MG3"))
+
+
+MG_filter <-   MG %>%
+  dplyr::filter(V1 == "weight_mo_pre_preg" |
+                V1 == "weight_mo_first_check"|
+                V1 == "weight_before_delivery"|
+                V1 == "BMI_mo" |
+                V1 == "TG" |
+                V1 == "UA.y" |
+                V1 == "coffee_freq_prepreg" |
+                V1 == "smoking_fa" |
+                V1 == "trajcluster") %>%
+  mutate(newname = case_when( V1 ==  "weight_mo_pre_preg" ~ "Prepregnancy weight",
+                              V1 == "weight_mo_first_check" ~ "Weight at the first prenatal visit",
+                              V1 == "weight_before_delivery" ~ "Weight before delivery",
+                              V1 == "BMI_mo" ~ "Prepregnancy BMI",
+                              V1 == "TG" ~ "TG",
+                              V1 == "UA.y" ~ "UA",
+                              V1 == "coffee_freq_prepreg" ~ "Coffee drinking frequency after pregnency",
+                              V1 == "smoking_fa" ~ "Paternal smoking status",
+                              V1 == "trajcluster" ~ "Trajectory"
+  ))
+
+
+target <- c("Prepregnancy weight", "Weight at the first prenatal visit","Weight before delivery",
+            "Prepregnancy BMI","TG","UA","Coffee drinking frequency after pregnency","Paternal smoking status",
+            "Trajectory")
+
+MG_filter %>%
+  ggplot(aes(x = factor(newname,level = target), y = visittype,
+             size = V2*100, fill=Significance)) +
+  scale_size(range = c(5, 12), name="Variation explained \n (partial R-squared)") +
+  geom_point(aes(size = V2),shape=21) +
+  scale_fill_manual(values = c("white","#630a10","#f7d098")) +
+  scale_color_manual(values = c("white","#630a10","#f7d098")) +
+  ylab("Visit") +
+  xlab("Phenotype") +
+  ggtitle(label = "")+
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=18,face="bold"), 
+        legend.text = element_text(size=20,face="bold"), 
+        legend.title = element_text(size=20,face="bold"),
+        plot.title = element_text(size=20, face="bold", hjust = 0.5), 
+        axis.text.x = element_text(size=18,face="bold",angle = 45, hjust = 1))+
+  theme(axis.text.y   = element_text(size=14),
+        axis.text.x   = element_text(size=14),
+        axis.title.y  = element_text(size=14),
+        axis.title.x  = element_text(size=14),
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=1))+ 
+  guides(fill = guide_legend(override.aes = list(size=8)))
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/Figure1C.pdf",width = 12, height = 7)
+
+
+MG_supp <- MG %>% 
+  dplyr::filter(str_detect(V1,"weight|height|zhaz|zwaz|zwhz")== TRUE &
+                  str_detect(V1,"_5|_4|_3|_2|_1")== TRUE  &
+                  str_detect(V1,"_10|_11")== FALSE) %>%
+  ggplot(aes(x = V1, y = visittype, size = V2*100,
+             fill=Significance)) +
+  scale_size(range = c(5, 14), name="Variation explained \n (partial R-squared)") +
+  geom_point(aes(size = V2),shape=21) +
+  scale_fill_manual(values = c("white","#630a10","#f7d098")) +
+  scale_color_manual(values = c("white","#630a10","#f7d098")) +
+  ylab("Visit") +
+  xlab("Phenotype") +
+  ggtitle(label = "")+
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=18,face="bold"), 
+        legend.text = element_text(size=20,face="bold"), 
+        legend.title = element_text(size=20,face="bold"), 
+        legend.position = "bottom",
+        plot.title = element_text(size=20, face="bold", hjust = 0.5), 
+        axis.text.x = element_text(size=18,face="bold",angle = 45, hjust = 1))+
+  theme(axis.text.y   = element_text(size=14),
+        axis.text.x   = element_text(size=14),
+        axis.title.y  = element_text(size=14),
+        axis.title.x  = element_text(size=14),
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=1))+ 
+  guides(fill = guide_legend(override.aes = list(size=8)))
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/FigureS2B.pdf",width = 14, height = 8)
+
