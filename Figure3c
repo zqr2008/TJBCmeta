@@ -1,0 +1,73 @@
+rm(list = ls())
+library(tidyverse)
+library(ggplot2)
+library(wesanderson)
+library(ggh4x)
+library(patchwork)
+library(sjmisc)
+library(rstatix)
+library(Maaslin2)
+library(microViz)
+library(MetBrewer)
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/")
+
+transmissibillity_merge_Vaginal.delivery <- read.delim("statistics_results_final/transmissibillity_merge_Vaginal delivery.tsv") %>%
+  mutate(type = "Vaginal delivery")
+
+transmissibillity_merge_C.section.delivery <- read.delim("statistics_results_final/transmissibillity_merge_C-section delivery.tsv") %>%
+  mutate(type = "C-section")
+
+
+
+transmissibillity_merge <- rbind(transmissibillity_merge_Vaginal.delivery,transmissibillity_merge_C.section.delivery)
+
+transmissibillity_merge$Trajectory <- as.factor(transmissibillity_merge$Trajectory )
+
+
+transmissibillity_merge$Visit <- factor(transmissibillity_merge$Visit,
+                                        levels = c("BM1.5","BM6","BM12","BM24","BM36"))
+
+selected_transmissibillity_merge <-   transmissibillity_merge %>%
+  filter(V1 == "Bifidobacterium_bifidum" | V1 =="t__SGB1853" | 
+           V1 =="t__SGB1855" | V1 == "Phocaeicola_vulgatus" | 
+           V1 =="Dysosmobacter_welbionis" | V1 == "Bacteroides_thetaiotaomicron") %>%
+  filter(Visit != "Overall") %>%
+  mutate(V1 = str_replace(V1,"_"," ")) %>%
+  mutate(newgroup = paste0(type," ", Trajectory))
+
+selected_transmissibillity_merge$V1 <- factor(selected_transmissibillity_merge$V1,
+                                              levels = c("Bifidobacterium bifidum",
+                                                         "Phocaeicola vulgatus",
+                                                         "Bacteroides thetaiotaomicron",
+                                                         "t _SGB1855",
+                                                         "t _SGB1853",
+                                                         "Dysosmobacter welbionis"))
+
+selected_transmissibillity_merge %>%
+  ggplot(aes(x= Visit,y= Transmissibility,fill = newgroup,shape= type, color = newgroup)) + 
+  geom_point(size = 5,position=position_dodge(width = .5))+
+  geom_line(aes(group = newgroup),position=position_dodge(width = .5))+
+  scale_x_discrete(labels =c("BM1.5","BM6","BM12","BM24","BM36"))+
+  xlab("Transmissilibity comparisons at different visits between delivery modes and trajectories")+
+  ylab("Transmissibillity") +
+  labs(shape = "Delivery mode") +
+  labs(color = "Group") +
+  guides(fill="none") +
+  scale_color_manual(values =met.brewer("Austria")) +
+  facet_wrap(~V1) + 
+  theme_classic()+
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=16,face="bold"), 
+        legend.text = element_text(size=10,face="bold"), 
+        legend.title = element_text(size=16,face="bold"), 
+        axis.text.y =  element_text(face = "italic"),
+        plot.title = element_text(size=20, face="bold", hjust = 0.5),
+        axis.text.x = element_text(size=18,face="bold",angle = 45, hjust = 1))+
+  theme(panel.grid.major.y = element_line(size = 0.5,
+                                          linetype = 2))+
+  theme(panel.grid.major.x = element_line(size = 0.5,
+                                          linetype = 2))+
+  theme(strip.text = element_text(size = 16,face = "italic")) +
+  theme(strip.background = element_part_rect(side = "b"))
