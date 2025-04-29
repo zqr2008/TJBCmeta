@@ -95,4 +95,72 @@ by IDchild;
 run;
 /*创建时间变量*/
 data zwhz2;
-set z
+set zwhz1;
+T1=0;
+T2=6;
+T3=12;
+T4=18;
+T5=24;
+run;
+/*查看X的最大值和最小值分别为-5.34和5.77*/
+proc means data=zwhz2 min max;
+var fzwhz1-fzwhz5;
+run;
+/*进行潜类别轨迹分析-三分类*/
+ods graphics on;
+PROC TRAJ data=zwhz2 out=of2 outplot=op2 outstat=os2 outest=OE2 CI95M;
+ID IDchild;
+VAR fzwhz1-fzwhz5;
+INDEP T1-T5;
+MODEL CNORM;
+NGROUPS 3;
+ORDER 3 3 3;
+MIN -6;
+MAX 6;
+RUN;
+%trajplotnew(op2,os2, 'WLZ vs. Times','Cnorm Model','WLZ','Times');
+ods graphics off;
+/*导出含有zwhz分组的数据库OF2和bmi1数据库进行合并并导出*/
+data OF3;
+set OF2(keep=IDchild group);
+label group=group3;
+rename group=group3;
+run;
+/*********进行潜类别轨迹分析结果的重绘图*************/
+/*****1、进行绘图数据库的整理********/
+proc transpose data=OP2 out=OP21;
+by T;
+var PRED1-PRED3;
+run;
+data OP21;
+set OP21 (keep=T COL1);
+rename COL1=pred;
+run;
+proc transpose data=OP2 out=OP22;
+by T;
+var L95M1-L95M3;
+run;
+data OP22;
+set OP22 (keep=T COL1);
+rename COL1=L95;
+run;
+proc transpose data=OP2 out=OP23;
+by T;
+var U95M1-U95M3;
+run;
+data OP23;
+set OP23 (keep=T COL1);
+rename COL1=U95;
+run;
+data OP;
+merge OP21 OP22 OP23;
+by T;
+run;
+/*添加group变量，为最终画图数据库*/
+data OPP;
+set OP;
+by T;
+if first.T then group=1;
+else group+1;
+run;
+
