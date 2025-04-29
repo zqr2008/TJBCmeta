@@ -1,0 +1,74 @@
+rm(list = ls())
+library(phyloseq)
+library(Maaslin2)
+library(microViz)
+library(sjmisc)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(MetBrewer)
+
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta")
+data_phylo <- readRDS("complete_phylo.rds")
+
+
+
+
+otudata <- as.data.frame((data_phylo@otu_table)) 
+
+metadata <- as.data.frame((data_phylo@sam_data)) 
+  
+
+class(otudata) <- "data.frame"
+class(metadata) <- "data.frame"
+
+
+metadata <- metadata %>%
+  rownames_to_column("sampleid")
+
+otudata <- otudata %>%
+dplyr::select(starts_with("Bifidobacterium"))  %>%
+rownames_to_column("sampleid")
+
+
+bifido_otu <- otudata %>%
+  left_join(metadata, by = "sampleid") %>%
+  filter(type == "offspring") %>%
+  dplyr::select(2:10,visit) %>%
+  pivot_longer(cols = c(1:9),
+               values_to   = "abundance") %>%
+  mutate(name = str_replace(name,"_"," "))
+
+
+
+bifido_otu$visit <- factor(bifido_otu$visit,
+                           levels = c("BM1.5","BM6","BM12","BM24","BM36"))
+
+
+
+
+
+
+setwd("Bifidobacterium/")
+
+  pic <- bifido_otu %>% 
+    ggplot(aes(x = as.numeric(visit), y = abundance,
+               color = name))+
+    geom_smooth(method = "loess", se = TRUE) +
+    scale_color_manual(values = met.brewer("Cross"))+
+    theme_classic() +
+    xlab("Visit") +
+    ylab("Relative abundance") +
+    ggtitle(label = "Bifidobacterium abundance")+
+    theme (plot.title = element_text (size = 14, face = "bold" ))+
+    guides(color=guide_legend(title="Bifidobacterium species"))+
+    scale_x_discrete(limits=c("BM1.5","BM6","BM12","BM24","BM36"))+
+    theme(axis.text=element_text(size=20,face="bold", color = "black"), 
+          axis.title=element_text(size=24,face="bold"), 
+          legend.text = element_text(size=20,face="italic"), 
+          legend.title = element_text(size=20,face="bold"), 
+          plot.title = element_text(size=26, face="italic", hjust = 0.5), 
+          axis.text.x = element_text(size=20,face="bold",angle = 315, hjust = -0.01)) 
+
+  
