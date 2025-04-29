@@ -1,5 +1,6 @@
 ########For loop PERMANOVA
 ########Matrix is too large, and caculation is very slow, so we divded these into chips, and run in linux
+########Replace template.R, generate all the Rscript
 
 rm(list = ls())
 
