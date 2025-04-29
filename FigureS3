@@ -1,0 +1,197 @@
+rm(list = ls())
+library(tidyverse)
+library(ggplot2)
+library(Rtsne)
+library(lme4)
+library(ggpubr)
+library(MetBrewer)
+library(lsmeans)
+library(patchwork)
+library(rstatix)
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta")
+
+load("data_index.rda")
+data_phylo <- readRDS("complete_phylo.rds")
+Metadata<- as.data.frame((data_phylo@sam_data))
+
+
+
+
+indexstore <- c("data_shannon","data_richness","data_evenness","PD")
+
+thirddataindex <- data_index %>%
+  filter(sampleid %in% rownames(Metadata)) 
+
+thirddataindex$trajcluster <- factor(thirddataindex$trajcluster,
+                                     levels = c("1","2","3"))
+
+my_comparisons <- list( c("1", "2"), c("2", "3"), c("1", "3"))
+
+thirddataindex$visit <- factor(thirddataindex$visit,
+                               levels = c("MG1",
+                                          "MG2",
+                                          "MG3",
+                                          "BM1.5",
+                                          "BM6",
+                                          "BM12",
+                                          "BM24",
+                                          "BM36"))
+
+
+stat.test <- thirddataindex %>%
+  group_by(visit) %>%
+  t_test(PD ~  trajcluster) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance("p.adj") %>%
+  mutate(p.adj = round(p.adj,3))
+
+stat.test.visit <- thirddataindex %>%
+  t_test(PD ~  visit) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance("p.adj") %>%
+  mutate(p.adj = round(p.adj,3))
+
+
+stat.test <- stat.test %>%
+  add_xy_position(x = "visit",step.increase = 0.07, dodge = 0.8)
+
+stat.test.visit <- stat.test.visit %>%
+  add_xy_position(x = "visit",step.increase = 0.04, dodge = 0.8)
+
+stat.test.visit <- stat.test.visit[c(18,19,23,26,28),] %>%
+  mutate(y.position = y.position - 6)
+
+stat.test.visit[1,11] <- 26
+
+
+thirddataindex %>% 
+  ggplot(aes( x = visit ,y = PD)) +
+  stat_boxplot(aes(fill = trajcluster),geom ='errorbar')+
+  geom_boxplot(aes(fill = trajcluster),outlier.size = 0.2)+
+  theme_classic()+
+  scale_fill_manual(values = c("#e95280","#23b1a5","#ffdd7e")) +
+  scale_color_manual(values = c("#e95280","#23b1a5","#ffdd7e")) +
+  xlab("Visits") +
+  ylab("Faith's Phylogenetic Diversity") +
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=16,face="bold"), 
+        legend.text = element_text(size=18,face="bold"), 
+        legend.title = element_text(size=18,face="bold"), 
+        plot.title = element_text(size=20, face="bold", hjust = 0.5))+
+  guides(fill=guide_legend(title="Trajectory"))+
+  stat_pvalue_manual(
+    stat.test,  label = "p.adj.signif", tip.length = 0
+  )+
+  stat_pvalue_manual(
+    stat.test.visit,  label = "p.adj.signif", tip.length = 0.01
+  )
+
+
+stat.test <- thirddataindex %>%
+  group_by(visit) %>%
+  t_test(data_richness ~  trajcluster) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance("p.adj") %>%
+  mutate(p.adj = round(p.adj,3))
+
+stat.test <- stat.test %>%
+  add_xy_position(x = "visit",step.increase = 0.10, dodge = 0.8)
+
+
+richness <- thirddataindex %>% 
+  ggplot(aes( x = visit ,y = data_richness)) +
+  stat_boxplot(aes(fill = trajcluster),geom ='errorbar')+
+  geom_boxplot(aes(fill = trajcluster),outlier.size = 0.2)+
+  theme_classic()+
+  scale_fill_manual(values = c("#e95280","#23b1a5","#ffdd7e")) +
+  scale_color_manual(values = c("#e95280","#23b1a5","#ffdd7e")) +
+  xlab("Visits") +
+  ylab("Richness") +
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=16,face="bold"), 
+        legend.text = element_text(size=18,face="bold"), 
+        legend.title = element_text(size=18,face="bold"), 
+        plot.title = element_text(size=20, face="bold", hjust = 0.5))+
+  guides(fill=guide_legend(title="Trajectory"))+
+  stat_pvalue_manual(
+    stat.test,  label = "p.adj", tip.length = 0
+  )
+
+
+
+
+
+stat.test <- thirddataindex %>%
+  group_by(visit) %>%
+  t_test(data_shannon ~  trajcluster) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance("p.adj") %>%
+  mutate(p.adj = round(p.adj,3))
+
+
+stat.test <- stat.test %>%
+  add_xy_position(x = "visit",step.increase = 0.2, dodge = 0.8)
+
+
+shannon <- thirddataindex %>% 
+  ggplot(aes( x = visit ,y = data_shannon)) +
+  stat_boxplot(aes(fill = trajcluster),geom ='errorbar')+
+  geom_boxplot(aes(fill = trajcluster),outlier.size = 0.2)+
+  theme_classic()+
+  scale_fill_manual(values = c("#e95280","#23b1a5","#ffdd7e")) +
+  scale_color_manual(values = c("#e95280","#23b1a5","#ffdd7e")) +
+  xlab("Visits") +
+  ylab("Shannon diversity index") +
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=16,face="bold"), 
+        legend.text = element_text(size=18,face="bold"), 
+        legend.title = element_text(size=18,face="bold"), 
+        plot.title = element_text(size=20, face="bold", hjust = 0.5))+
+  guides(fill=guide_legend(title="Trajectory"))+
+  stat_pvalue_manual(
+    stat.test,  label = "p.adj", tip.length = 0
+  )
+
+
+
+
+stat.test <- thirddataindex %>%
+  group_by(visit) %>%
+  t_test(data_evenness ~  trajcluster) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance("p.adj")   %>%
+  mutate(p.adj = round(p.adj,3))
+
+stat.test <- stat.test %>%
+  add_xy_position(x = "visit",step.increase = 0.32, dodge = 0.8)
+
+
+evenness <- thirddataindex %>% 
+  ggplot(aes( x = visit ,y = data_evenness)) +
+  stat_boxplot(aes(fill = trajcluster),geom ='errorbar')+
+  geom_boxplot(aes(fill = trajcluster),outlier.size = 0.2)+
+  theme_classic()+
+  scale_fill_manual(values = c("#e95280","#23b1a5","#ffdd7e")) +
+  scale_color_manual(values = c("#e95280","#23b1a5","#ffdd7e")) +
+  xlab("Visits") +
+  ylab("Evenness") +
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=16,face="bold"), 
+        legend.text = element_text(size=18,face="bold"), 
+        legend.title = element_text(size=18,face="bold"), 
+        plot.title = element_text(size=20, face="bold", hjust = 0.5))+
+  guides(fill=guide_legend(title="Trajectory"))+
+  stat_pvalue_manual(
+    stat.test,  label = "p.adj", tip.length = 0
+  )
+
+
+
+richness/shannon/evenness
+
+ggsave("FigureS3.pdf",width = 9, height = 12)
