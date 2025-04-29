@@ -8,7 +8,8 @@ For recreate figures in the research paper
 Figure1a.Study design
 
 
-![Uploading Copy of Untitled (6).png…]()
+
+![Copy of Untitled (6)](https://github.com/user-attachments/assets/58aefee9-830b-4375-ad66-f3139d857688)
 
 Key findings summary
 
