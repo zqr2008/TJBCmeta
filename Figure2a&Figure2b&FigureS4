@@ -204,6 +204,45 @@ Figure2b_2 <- plotphate %>%
     size= 3,y.position = -0.02
   )
 
+
+################################################################
+#figureS4
+################################################################
+
+pic_list <- list()
+
+for (jj in levels(factor(plotphate$visit))){
+  
+  pic <- plotphate %>% 
+    filter(visit == jj) %>%
+    ggplot(aes( x = PHATE1 ,y = PHATE4, color = trajcluster)) +
+    geom_point(alpha = 0.5,size = 1) +
+    theme_void()+
+    xlab(paste0("PHATE axis 1")) +
+    ylab("PHATE axis 4") +
+    ggtitle(label = paste0(jj))+
+    scale_fill_manual(values = c("#e95280","#23b1a5","#E49B0F")) +
+    scale_color_manual(values = c("#e95280","#23b1a5","#E49B0F")) +
+    stat_ellipse(linetype = 2,
+                 lwd = 0.7)+
+    theme (plot.title = element_text (size = 14, face = "bold" ))+
+    theme (plot.title = element_text (size = 14, face = "bold" ))+
+    theme(legend.text = element_text(size=0,face="bold"), 
+          plot.title = element_text(size=20, face="bold", hjust = 0.5))+
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())+
+    theme(legend.position = "none")
+  pic_list[[jj]] <- pic
+  print(pic)
+  
+}
+
+pdf("FigureS3.pdf",width = 9, height = 9)
+pic <- do.call(grid.arrange,pic_list)
+dev.off()
+
+
 ######################################################
 #END
 ######################################################
