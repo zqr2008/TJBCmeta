@@ -1,0 +1,131 @@
+rm(list = ls())
+library(tidyverse)
+library(ggplot2)
+library(wesanderson)
+library(ggh4x)
+library(patchwork)
+library(sjmisc)
+library(rstatix)
+library(Maaslin2)
+library(microViz)
+
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/")
+
+load("joinanalysis.rda")
+load("DEsig.transmission_event.rda")
+load("t_level.rda")
+load("plotphate.rda")
+
+Phocaeicola_vulgatus.trans <- DEsig.transmission_event %>%
+  filter(speciesname == "Phocaeicola_vulgatus")
+
+
+Bifidobacterium_bifidum.trans <- DEsig.transmission_event %>%
+  filter(speciesname == "Bifidobacterium_bifidum")
+
+
+Bacteroides_thetaiotaomicron.trans <- DEsig.transmission_event %>%
+  filter(speciesname == "Bacteroides_thetaiotaomicron")
+
+
+plotphate_phate2 <- plotphate %>%
+  rownames_to_column("sampleid") %>%
+  mutate(Pvulgatustrans = case_when(sampleid %in% Phocaeicola_vulgatus.trans$sampleid ~ "Yes",
+                                    TRUE ~ "No"),
+         Bbifidumtrans = case_when(sampleid %in% Bifidobacterium_bifidum.trans$sampleid ~ "Yes",
+                                                   TRUE ~ "No"),
+         Bthetaiotaomicrontrans = case_when(sampleid %in% Bacteroides_thetaiotaomicron.trans$sampleid ~ "Yes",
+                                            TRUE ~ "No"),
+         )
+
+
+
+
+stat.test1 <- plotphate_phate2 %>%
+  filter(type == "offspring" & delivery_mode_kid == "Vaginal delivery") %>%
+  group_by(trajcluster) %>%
+  t_test(PHATE2~Pvulgatustrans ) %>%
+  adjust_pvalue(method = "BH") %>%
+  add_significance("p.adj") 
+
+stat.test1 <- stat.test1 %>%
+  add_xy_position(x = "trajcluster",step.increase = 0.05,fun = "median_iqr",
+                  dodge = 0.5) %>%
+  mutate(color = "No") 
+
+
+#stat.test1_csection <- plotphate_phate2 %>%
+#  filter(type == "offspring" & delivery_mode_kid == "Caesarean section") %>%
+#  group_by(trajcluster) %>%
+#  t_test(PHATE2~Pvulgatustrans ) %>%
+#  adjust_pvalue(method = "BH") %>%
+#  add_significance("p.adj") 
+
+
+#stat.test2 <- plotphate_phate2 %>%
+#  filter(type == "offspring") %>%
+#  t_test(PHATE2  ~trajcluster ) %>%
+#  adjust_pvalue(method = "BH") %>%
+#  add_significance("p.adj") 
+
+
+
+pic3E_2 <- plotphate_phate2 %>% 
+  filter(type == "offspring" & delivery_mode_kid == "Vaginal delivery") %>%
+  group_by(trajcluster,Pvulgatustrans) %>%
+  summarise(PHATE_mean = mean(PHATE2),
+            PHATE_sd = sd(PHATE2)) %>%
+  ggplot(aes(x = as.numeric(trajcluster), y = PHATE_mean,color = Pvulgatustrans))+
+  geom_errorbar(mapping =  aes (ymax = PHATE_mean+PHATE_sd,
+                                ymin = PHATE_mean-PHATE_sd),  
+                width = 0.5,position = position_dodge(width = 0.9)) +
+  geom_point(mapping = aes(y=PHATE_mean),
+             position = position_dodge(width = 0.9),
+             size = 6)+
+  theme_classic()+
+  xlab("Trajectory") +
+  ylab("PHATE axis 2") +
+  scale_fill_manual(values = c("#f24000","#007ba5")) +
+  scale_color_manual(values = c("#f24000","#007ba5")) +
+  theme(axis.text=element_text(size=16,face="bold", angle = 45, hjust = 1,color = "black"), 
+        axis.title=element_text(size=16,face="bold"), 
+        legend.text = element_text(size=18,face="bold"), 
+        legend.title = element_text(size=18,face="bold"), 
+        legend.position="top",
+        plot.title = element_text(size=22, face="bold"),
+        plot.subtitle=element_text(size=18,  color="black"))+
+  coord_cartesian(ylim = c(-0.03,0.02)) +
+  guides(fill="none")+
+  guides(color=guide_legend(title="Transmission status of \n Phocaeicola vulgatus",nrow=3))+
+  stat_pvalue_manual(
+    stat.test1, label = "p.adj.signif", tip.length = 0,
+    hide.ns = F, size= 6
+  )
+
+
+my_comparisons <- list( c("1", "2"), c("2", "3"), c("1", "3")
+                        )
+pic3E_1 <- ggboxplot(plotphate_phate2, x = "trajcluster", y = "PHATE2",
+          color = "trajcluster", palette = "jco")+
+  stat_compare_means(comparisons = my_comparisons,label = "p.signif") +
+  theme_classic()+
+  xlab("Trajectory") +
+  ylab("PHATE axis 2") +
+  scale_fill_manual(values = c("#e95280","#23b1a5","#E49B0F")) +
+  scale_color_manual(values = c("#e95280","#23b1a5","#E49B0F")) +
+  theme(axis.text=element_text(size=16,face="bold", angle = 45, hjust = 1,color = "black"), 
+        axis.title=element_text(size=16,face="bold"), 
+        legend.text = element_text(size=18,face="bold"), 
+        legend.title = element_text(size=18,face="bold"), 
+        legend.position="top",
+        plot.title = element_text(size=22, face="bold"),
+        plot.subtitle=element_text(size=18,  color="black"))+
+  guides(fill="none")+
+  guides(color=guide_legend(title="Trajectory",nrow=3))
+
+design <- "AABBBB"
+pic3E_1+pic3E_2 +plot_layout(design = design)
+
+
+ggsave("Figure3e.pdf",width = 9, height = 7)
