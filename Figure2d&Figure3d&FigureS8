@@ -10,10 +10,7 @@ library(rstatix)
 setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta")
 complete_phylo <- readRDS("complete_phylo.rds")
 
-complete_phylo <- complete_phylo %>%
-  ps_filter(
-    type == "offspring"
-  )
+
 
 otudf <- as.data.frame(complete_phylo@otu_table)
 
@@ -26,21 +23,20 @@ otudf <- otudf %>%
   rownames_to_column("sampleid")
 
 trajectory <- trajectory %>%
-  mutate(reference_group = case_when( zwhz_1 > 2 |
-                                        zwhz_2 > 2 |
-                                        zwhz_3 > 2 |
-                                        zwhz_4 > 2  ~ "obsesity",
-                                      zwhz_1 < -2 |
-                                        zwhz_2 < -2 |
-                                        zwhz_3 < -2 |
-                                        zwhz_4 < -2  ~ "lean",
-                                      TRUE ~ "FALSE")) %>% 
-  dplyr::select(visit,trajcluster,delivery_mode_kid,reference_group) %>%
+  mutate(maternal_reference_group = case_when( BMI_mo <18.5   ~ "lean",
+                                               BMI_mo >= 28   ~ "obsesity",
+                                      TRUE ~ NA)) %>% 
+  dplyr::select(visit,type,trajcluster,delivery_mode_kid,maternal_reference_group) %>%
   drop_na(trajcluster) %>%
   rownames_to_column("sampleid") %>%
   left_join(otudf,by = "sampleid")  
 
 
+trajectorymaternal <- trajectory %>%
+  filter(type == "mother")
+
+trajectory <- trajectory %>% 
+  filter(type == "offspring")
 
 significant_results <- read.delim("significant_results_select_offspring")
 selected <- significant_results$feature
@@ -180,3 +176,53 @@ setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/d
     ggsave(paste0(j,"bydeliverymode.pdf"),width =20,height = 20,units = "cm")
   }
 
+
+
+
+##########################################################################################
+#Figure S8
+##########################################################################################
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/extremeMaternal")
+  
+trajectoryextreme<- trajectorymaternal %>%
+    mutate(across(where(is.numeric), ~log10(.+1e-6))) %>%
+  drop_na(maternal_reference_group)
+
+trajectoryextreme$maternal_reference_group <- fct_drop(trajectoryextreme$maternal_reference_group)
+
+for (j in selected){
+  
+  
+  
+  stat.test <- trajectoryextreme %>%
+    group_by(visit) %>%
+    wilcox_test(reformulate("maternal_reference_group", j )) %>%
+    adjust_pvalue(method = "BH") %>%
+    add_significance("p.adj") 
+  
+  stat.test <- stat.test %>%
+    add_xy_position(x = "visit",step.increase = 0.05,fun = "median_iqr",
+                    dodge = 0.5) 
+  
+  newname <- str_replace(j,"_"," ")
+  
+  pic <- trajectoryextreme %>% 
+    ggplot(aes(x = visit, y = get(j)))+
+    stat_boxplot(aes(fill = maternal_reference_group),geom ='errorbar')+
+    geom_boxplot(aes(fill = maternal_reference_group),outlier.size = 0.2)+
+    theme_classic() +
+    scale_fill_manual(values = met.brewer("Java"))+
+    xlab("Visit") +
+    ylab("Relative abundance(log 10 transformation)") +
+    ggtitle(label = paste0(newname))+
+    theme (plot.title = element_text (size = 14, face = "bold" ))+
+    guides(fill=guide_legend(title="Extreme group"))+
+    theme(axis.text=element_text(size=20,face="bold", color = "black"), 
+          axis.title=element_text(size=24,face="bold"), 
+          legend.text = element_text(size=20,face="bold"), 
+          legend.title = element_text(size=20,face="bold"), 
+          plot.title = element_text(size=26, face="italic", hjust = 0.5), 
+          axis.text.x = element_text(size=20,face="bold",angle = 315, hjust = -0.01))  +
+    stat_pvalue_manual(stat.test, label = "p.adj.signif")
+  ggsave(paste0(j,"extreme_bymaternalBMI.pdf"),width =20,height = 20,units = "cm")
+}
