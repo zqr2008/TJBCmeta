@@ -1,0 +1,243 @@
+rm(list = ls())
+library(readr)
+library(vegan)
+library(tidyverse)
+library(ggpubr)
+library(scales)
+library(ggpubr)
+library(broom)
+
+###########################################################
+#clustering heatmap for cazy 
+###########################################################
+load("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/spreadcazy.rda")
+complete_phylo <-  readRDS("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/ps_filtered.rds")
+
+metadata <- as.data.frame(complete_phylo@sam_data)
+class(metadata) <- "data.frame"
+metadata <- metadata %>%
+  rownames_to_column("sampleid") %>%
+  dplyr::select(sampleid,class_1,zwhz_1:zwhz_7)
+
+
+otu <- as.data.frame(complete_phylo@otu_table)
+class(otu) <- "data.frame"
+otu  <-  otu %>%
+  rownames_to_column("sampleid") %>%
+  dplyr::select(sampleid,Bifidobacterium_pseudocatenulatum,Bifidobacterium_bifidum)
+
+
+
+
+
+
+
+spreadcazyforspecies <- spreadcazy %>%
+  left_join(otu,by="sampleid") %>%
+  filter(speciesname == "Bifidobacterium pseudocatenulatum") %>%
+  left_join(metadata, by ="sampleid")
+
+
+
+valid_pairs <- tibble::tribble(
+  ~visit,   ~zwhz,
+  "BM1.5",  "zwhz_1",
+  "BM1.5",  "zwhz_2",
+  "BM1.5",  "zwhz_3",
+  
+  "BM6",    "zwhz_2",
+  "BM6",    "zwhz_3",
+  "BM6",    "zwhz_4",
+  
+  "BM12",   "zwhz_3",
+  "BM12",   "zwhz_4",
+  "BM12",   "zwhz_5",
+  
+  "BM24",   "zwhz_4",
+  "BM24",   "zwhz_5",
+  "BM24",   "zwhz_6",
+  
+  "BM36",   "zwhz_5",
+  "BM36",   "zwhz_6",
+  "BM36",   "zwhz_7"
+)
+
+
+
+df <- spreadcazyforspecies %>%
+  filter(
+    speciesname == "Bifidobacterium pseudocatenulatum",
+    transmit == "transmitted between dyads"
+  )
+
+cor_res <- valid_pairs %>%
+  mutate(
+    result = map2(visit, zwhz, ~{
+      tmp <- df %>% filter(visit == .x)
+      cor.test(tmp$sum_GT, tmp[[.y]]) %>% tidy()
+    })
+  ) %>%
+  tidyr::unnest(result) %>%
+  mutate(
+    visit = factor(visit, levels = c("BM1.5","BM6","BM12","BM24","BM36")),
+    signif_label = paste0("(",sprintf("p = %.3e", p.value),")")
+  )%>%
+  mutate(
+    visit = factor(visit, levels = c("BM1.5","BM6","BM12","BM24","BM36")),
+    signif_label = paste0("(", sprintf("p = %.3e", p.value), ")"),
+    zwhz_label = case_when(
+      zwhz=="zwhz_1" ~ "WFL/HZ\n(0 mo)",
+      zwhz=="zwhz_2" ~ "WFL/HZ\n(5–7 mo)",
+      zwhz=="zwhz_3" ~ "WFL/HZ\n(11–13 mo)",
+      zwhz=="zwhz_4" ~ "WFL/HZ\n(17–19 mo)",
+      zwhz=="zwhz_5" ~ "WFL/HZ\n(23–25 mo)",
+      zwhz=="zwhz_6" ~ "WFL/HZ\n(29–31 mo)",
+      zwhz=="zwhz_7" ~ "WFL/HZ\n(35–37 mo)"
+    ),
+    # ⭐ Order x-axis by the underlying real age
+    zwhz_label = factor(
+      zwhz_label,
+      levels = c(
+        "WFL/HZ\n(0 mo)",
+        "WFL/HZ\n(5–7 mo)",
+        "WFL/HZ\n(11–13 mo)",
+        "WFL/HZ\n(17–19 mo)",
+        "WFL/HZ\n(23–25 mo)",
+        "WFL/HZ\n(29–31 mo)",
+        "WFL/HZ\n(35–37 mo)"
+      )
+    )
+  )
+
+
+
+ggplot(cor_res, aes(x = zwhz_label, y = visit, fill = estimate)) +
+  geom_tile(color = "white") +
+  geom_text(
+    aes(label = paste0(round(estimate, 3), "\n",signif_label)),
+    size = 3
+  ) +
+  scale_fill_gradient2(
+    low = "#6D9EC1", mid = "white", high = "#E46726",
+    midpoint = 0, name = "Pearson r"
+  ) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Correlation of tranmitted B. pseudocatenulatum GT gene counts\nwith somatic growth",
+    x = "WFL/Hz",
+    y = "Visit"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    panel.grid = element_blank()
+  )
+
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/correlationZSCORE_GT.pdf",
+       width =9, height = 7)
+
+# Prepare data
+spreadcazyforspecies <- spreadcazy %>%
+  left_join(otu, by = "sampleid") %>%
+  filter(speciesname == "Bifidobacterium pseudocatenulatum") %>%
+  left_join(metadata, by = "sampleid")
+
+valid_pairs <- tibble::tribble(
+  ~visit,   ~zwhz,
+  "BM1.5",  "zwhz_1",
+  "BM1.5",  "zwhz_2",
+  "BM1.5",  "zwhz_3",
+  
+  "BM6",    "zwhz_2",
+  "BM6",    "zwhz_3",
+  "BM6",    "zwhz_4",
+  
+  "BM12",   "zwhz_3",
+  "BM12",   "zwhz_4",
+  "BM12",   "zwhz_5",
+  
+  "BM24",   "zwhz_4",
+  "BM24",   "zwhz_5",
+  "BM24",   "zwhz_6",
+  
+  "BM36",   "zwhz_5",
+  "BM36",   "zwhz_6",
+  "BM36",   "zwhz_7"
+)
+
+df <- spreadcazyforspecies %>%
+  filter(
+    speciesname == "Bifidobacterium pseudocatenulatum",
+    transmit == "transmitted between dyads"
+  )
+
+
+
+cor_res <- valid_pairs %>%
+  mutate(
+    result = map2(visit, zwhz, ~{
+      tmp <- df %>% filter(visit == .x)
+      cor.test(tmp$sum_GH, tmp[[.y]]) %>% tidy()
+    })
+  ) %>%
+  tidyr::unnest(result) %>%
+  mutate(
+    visit = factor(visit, levels = c("BM1.5","BM6","BM12","BM24","BM36")),
+    signif_label = paste0("(", sprintf("p = %.3e", p.value), ")"),
+    zwhz_label = case_when(
+      zwhz=="zwhz_1" ~ "WFL/HZ\n(0 mo)",
+      zwhz=="zwhz_2" ~ "WFL/HZ\n(5–7 mo)",
+      zwhz=="zwhz_3" ~ "WFL/HZ\n(11–13 mo)",
+      zwhz=="zwhz_4" ~ "WFL/HZ\n(17–19 mo)",
+      zwhz=="zwhz_5" ~ "WFL/HZ\n(23–25 mo)",
+      zwhz=="zwhz_6" ~ "WFL/HZ\n(29–31 mo)",
+      zwhz=="zwhz_7" ~ "WFL/HZ\n(35–37 mo)"
+    ),
+    # ⭐ Order x-axis by the underlying real age
+    zwhz_label = factor(
+      zwhz_label,
+      levels = c(
+        "WFL/HZ\n(0 mo)",
+        "WFL/HZ\n(5–7 mo)",
+        "WFL/HZ\n(11–13 mo)",
+        "WFL/HZ\n(17–19 mo)",
+        "WFL/HZ\n(23–25 mo)",
+        "WFL/HZ\n(29–31 mo)",
+        "WFL/HZ\n(35–37 mo)"
+      )
+    )
+  )
+
+
+
+
+
+ggplot(cor_res, aes(x = zwhz_label, y = visit, fill = estimate)) +
+  geom_tile(color = "white") +
+  geom_text(
+    aes(label = paste0(round(estimate, 3), "\n", signif_label)),
+    size = 3
+  ) +
+  scale_fill_gradient2(
+    low = "#6D9EC1",
+    mid = "white",
+    high = "#E46726",
+    midpoint = 0,
+    name = "Pearson r"
+  ) +
+  theme_minimal(base_size = 13) +
+  labs(
+    title = "Correlation of tranmitted B. pseudocatenulatum GH gene counts\nwith somatic growth",
+    x = "WFL/Hz",
+    y = "Visit"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 12),
+    axis.text.y = element_text(size = 12),
+    panel.grid = element_blank()
+  )
+
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/correlationZSCORE_GH.pdf",
+       width =9, height = 7)
