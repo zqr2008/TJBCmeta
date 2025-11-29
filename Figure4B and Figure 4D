@@ -1,0 +1,521 @@
+rm(list = ls())
+library(Maaslin2)
+library(microViz)
+library(tidyverse)
+library(microbiome)
+library(sjmisc)
+library(tibble)
+library(MetBrewer)
+library(labelled)
+
+##########################################
+#handle data
+##########################################
+
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision")
+
+
+data_phylo <- readRDS("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/ps_filtered.rds")
+
+#data_phylo <- aggregate_taxa(data_phylo, "Genus")
+
+
+supple <- phyloseq_validate(data_phylo, remove_undetected = TRUE)
+supple <- tax_fix(supple)
+
+mother_ps <- supple %>%
+  ps_filter(
+    str_detect(visit,"MG")
+  ) %>%
+  ps_filter(
+    is.na(class_1) == FALSE
+  ) 
+
+offspring_ps <- supple %>%
+  ps_filter(
+    str_detect(visit,"BM")
+  ) %>%
+  ps_filter(
+    is.na(class_1) == FALSE
+  ) 
+
+# 1️⃣ Subset phyloseq to Bifidobacterium first
+bifido_ps <- subset_taxa(mother_ps, str_detect(Genus, "Bifidobacterium"))
+bifido_pa <- microbiome::transform(bifido_ps, "pa")
+# 3️⃣ Extract presence/absence matrix and metadata
+otu_mat <- as(otu_table(bifido_pa), "matrix")
+otu_mat <- t(otu_mat)  # samples as rows
+
+
+meta_df <- data.frame(sample_data(bifido_pa)) %>% 
+  rownames_to_column("SampleID")
+# 4️⃣ Combine into long tidy table
+ps_df <- otu_mat %>%
+  as.data.frame() %>%
+  rotate_df() %>%
+  rownames_to_column("SampleID") %>%
+  pivot_longer(-SampleID, names_to = "Taxon", values_to = "Presence") %>%
+  left_join(meta_df,by ="SampleID")
+
+
+ps_df$class_1 <- as.factor(ps_df$class_1)
+class(ps_df) <- "data.frame"
+
+
+
+storedf <- data.frame()
+
+
+for (jj in levels(factor(ps_df$Taxon))){
+  #for (vv in levels(factor(ps_df$visit))){
+    
+tmp <- ps_df %>%
+  filter(Taxon == jj)  #%>%
+  #filter(visit ==vv )
+
+
+prev_table <- ps_df %>%
+  filter(Taxon == jj)  %>%
+  #filter(visit ==vv ) %>%
+  group_by(class_1) %>%
+  summarise(prevalence = mean(Presence > 0) * 100, .groups = "drop")
+  
+  
+subtable<-  table(tmp$Presence,tmp$class_1) %>%
+  pairwise_fisher_test(p.adjust.method = "BH") %>%
+    mutate(group = paste0(group1,group2)) %>%
+    mutate(group = case_when(group == "12" ~"Trajectory 1 vs. Trajectory 2",
+                             group == "23" ~"Trajectory 3 vs. Trajectory 2",
+                             group == "13" ~"Trajectory 1 vs. Trajectory 3")) %>%
+  
+    mutate(contrast =  NA) %>%
+    mutate(newp = case_when(p.adj < 0.05 ~ "*")) %>%
+    mutate(speciesname = jj)  #%>%
+    #mutate(visitvisit = vv) %>%
+    #mutate(newgroup = paste0(visitvisit," ",group)) 
+  
+  
+    subtable[1,"contrast"] <- prev_table[1,2] - prev_table[2,2] 
+    subtable[2,"contrast"] <- prev_table[3,2] - prev_table[2,2]   
+    subtable[3,"contrast"] <- prev_table[1,2] - prev_table[3,2]   
+  
+  storedf <- rbind(storedf,subtable)
+}
+
+
+
+
+
+
+complete_phylo <- readRDS("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/ps_filtered.rds")
+m6 <-read_sav("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/metadata/喂养数据250617/m6.sav")
+m6 <- remove_labels(m6)
+
+
+feeding6month <- m6  %>%
+  dplyr::select(sjid_kid= IDchild,
+                feeding_m6) 
+
+feeding6month$sjid_kid <- as.character(feeding6month$sjid_kid)
+
+otudf <- as.data.frame(complete_phylo@otu_table)
+
+trajectory <- as.data.frame(complete_phylo@sam_data)
+
+class(trajectory) <- "data.frame"
+class(otudf) <- "data.frame"
+
+otudf <- otudf %>%
+  rownames_to_column("sampleid")
+
+trajectory <- trajectory %>%
+  rownames_to_column("sampleid") %>%
+  left_join(otudf,by = "sampleid")   %>%
+  mutate(trajcluster= as.factor(class_1))
+
+
+trajectory <- trajectory %>%
+  mutate(across(
+    .cols = intersect(colnames(otudf), names(.)[sapply(., is.numeric)]),
+    .fns = ~ log10(. + 1e-6)
+  ))
+
+trajectorymaternal <- trajectory %>%
+  filter(str_detect(visit,"MG"))
+
+trajectory <- trajectory  %>%
+  left_join(feeding6month,by ="sjid_kid")
+
+trajectory$visit <- factor(trajectory$visit,levels = c("BM1.5",
+                                                       "BM6",
+                                                       "BM12",
+                                                       "BM24",
+                                                       "BM36",
+                                                       "MG1",
+                                                       "MG2",
+                                                       "MG3"))
+
+
+
+
+##########################################
+#wilcox test for supplementary
+##########################################
+var_list <- intersect(
+  colnames(otudf)[str_detect(colnames(otudf), "_")],
+  colnames(trajectory)[sapply(trajectory, is.numeric)]
+)
+storewilcox <- list()
+
+for (j in var_list) {
+  # Skip if all NA or no variation
+  x <- trajectory[[j]]
+  if (all(is.na(x)) || length(unique(na.omit(x))) < 2) {
+    message("Skipping ", j, " (all NA or constant)")
+    next
+  }
+  
+  message("Running Wilcoxon test for: ", j)
+  tmp <- tryCatch({
+    trajectory %>%
+      group_by(visit) %>%
+      wilcox_test(reformulate("trajcluster", j), p.adjust.method = "BH",detailed = T) %>%
+      add_significance("p.adj") %>%
+      mutate(
+        variable = j,
+        p.adj = round(p.adj, 3)
+      )
+  }, error = function(e) {
+    message("❌ Error in ", j, ": ", e$message)
+    NULL
+  })
+  
+  if (!is.null(tmp)) storewilcox[[j]] <- tmp
+}
+
+# Combine all results into one data frame
+storewilcox <- bind_rows(storewilcox)
+
+save(storewilcox,file = "C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/differentiatingspecies_for_offspring/storewilcox.rda")
+
+write.table(storewilcox,file ="C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/storewilcox.csv",
+            fileEncoding = "GBK",sep = ",",quote = F,col.names = T,row.names = F)
+
+
+load("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/differentiatingspecies_for_offspring/storewilcox.rda")
+
+storewilcox$visit <- factor(storewilcox$visit,levels = c("BM1.5","BM6","BM12","BM24","BM36"))
+# Filter species that have p.adj < 0.05 in at least one visit
+signif_species <- storewilcox %>%
+  group_by(.y.) %>%
+  filter(any(p.adj < 0.05)) %>%
+  ungroup()
+# assume df has columns: visit, estimate, p, group1, group2, etc.
+df <- signif_species %>%
+  mutate(
+    comparison = paste0(group1, " vs ", group2),
+    neglog10p = -log10(p + 1e-10),
+    signif_status = ifelse(p <= 0.05, "significant", "ns"),
+    # collapse color key so non-significant are "ns" and significant keep their visit
+    color_key = ifelse(signif_status == "significant", as.character(visit), "ns"),
+    color_key = factor(color_key, levels = c("ns", sort(unique(as.character(visit)))))
+  )
+
+
+
+# Prepare data
+df <- df %>%
+  mutate(
+    neglog10p = -log10(p + 1e-10),
+    signif_status = ifelse(p <= 0.05, "significant", "ns"),
+    color_key = ifelse(signif_status == "significant", as.character(visit), "ns"),
+    color_key = factor(color_key, levels = c("ns", levels(df$visit)))
+  )
+
+# Define colors
+col_values <- c("ns" = "grey70", "BM1.5" = "#e95280", "BM6" = "#E49B0F", "BM12" = "#7C4DFF", "BM24" = "#00BFC4", "BM36" = "#FF61CC")
+
+# Volcano-like plot
+ggplot(df, aes(x = estimate, y = neglog10p)) +
+  geom_point(aes(color = color_key, shape = paste0(group1," vs ",group2)), size = 3, alpha = 0.9) +
+  geom_text_repel(aes(label = .y.), size = 3, max.overlaps = 15) +  # species names
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black") +
+  scale_color_manual(values = col_values, guide = guide_legend(override.aes = list(alpha = 1))) +
+  labs(
+    x = "Estimate", 
+    y = expression(-log[10](P)),
+    color = "Visit (sig only)", 
+    shape = "Group Comparison"
+  ) +
+  theme_bw(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+
+
+
+
+
+
+##########################################
+#plot de for offspring
+##########################################
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/differentiatingspecies_for_offspring/")
+
+
+#for (j in colnames(otudf)[str_detect(colnames(otudf),"Bifidobacterium")]){
+for (j in colnames(otudf)[str_detect(colnames(otudf),"Bifidobacterium_bifidum")]){
+  
+  stat.test <- trajectory %>%
+    group_by(visit) %>%
+    filter(str_detect(visit,"BM")) %>%
+    wilcox_test(reformulate("trajcluster", j ),p.adjust.method = "BH") %>%
+    add_significance("p.adj") %>%
+    mutate(p.adj = round(p.adj,3)) 
+  
+  stat.test <- stat.test %>%
+    add_xy_position(x = "visit",step.increase = 0.05,fun = "median_iqr",
+                    dodge = 0.5) %>%
+    mutate(color = case_when(group1 == "1" & group2 == "2" ~ "1",
+                             group1 == "2" & group2 == "3" ~ "2",
+                             group1 == "1" & group2 == "3" ~ "3")) 
+  
+  newname <- str_replace(j,"_"," ")
+  
+  pic <- trajectory %>% 
+    filter(str_detect(visit,"BM")) %>%
+    ggplot(aes(x = as.numeric(visit), y = get(j),
+               color = trajcluster))+
+    #geom_errorbar(mapping =  aes (ymax = traj_q3,
+    #                              ymin = traj_q1),  
+    #             width = 0.5,position="dodge2") +
+    geom_smooth(method = "loess", se = TRUE) +
+    #geom_point(aes(x = as.numeric(visit),y=traj_median,color = trajcluster),
+    #           size = 4,
+    #           position = position_dodge(width = 0.5))+
+    #geom_line(aes(x = as.numeric(visit),y=traj_median, fill=trajcluster,
+    #              group =trajcluster,color = trajcluster),position = position_dodge(width = 0.5))+
+    theme_classic() +
+    xlab("Visit") +
+    ylab("Relative abundance(log 10 transformation)") +
+    scale_fill_manual(values = c("#e95280","#23b1a5","#e49b0f")) +
+    scale_color_manual(values = c("#e95280","#23b1a5","#e49b0f")) +
+    ggtitle(label = paste0(newname))+
+    theme (plot.title = element_text (size = 14, face = "bold" ))+
+    guides(color=guide_legend(title="Trajectory"))+
+    scale_x_discrete(limits=c("BM1.5","BM6","BM12","BM24","BM36"))+
+    theme(axis.text=element_text(size=20,face="bold", color = "black"), 
+          axis.title=element_text(size=24,face="bold"), 
+          legend.text = element_text(size=20,face="bold"), 
+          legend.title = element_text(size=20,face="bold"), 
+          plot.title = element_text(size=26, face="italic", hjust = 0.5), 
+          axis.text.x = element_text(size=20,face="bold",angle = 315, hjust = -0.01))  +
+    stat_pvalue_manual(
+      stat.test,  
+      y.position = -4.5, size = 6 ,label = "p.adj.signif", tip.length = 0, color = "color",hide.ns = T
+    )
+  ggsave(paste0(j,".pdf"),width =20,height = 20,units = "cm")
+}
+
+
+
+
+
+
+
+
+##########################################
+#plot in vaginal delivery 
+##########################################
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/differentiatingspecies_for_offspring/")
+
+
+#for (j in colnames(otudf)[str_detect(colnames(otudf),"Bifidobacterium")]){
+for (j in colnames(otudf)[str_detect(colnames(otudf),"Bifidobacterium_adolescentis")]){
+  
+  stat.test <- trajectory %>%
+    filter(delivery_mode=="Vaginal delivery") %>%
+    filter(str_detect(visit,"BM")) %>%
+    group_by(visit) %>%
+    wilcox_test(reformulate("trajcluster", j ),p.adjust.method = "BH") %>%
+    add_significance("p.adj") %>%
+    mutate(p.adj = round(p.adj,3)) 
+  
+  stat.test <- stat.test %>%
+    add_xy_position(x = "visit",step.increase = 0.05,fun = "median_iqr",
+                    dodge = 0.5) %>%
+    mutate(color = case_when(group1 == "1" & group2 == "2" ~ "1",
+                             group1 == "2" & group2 == "3" ~ "2",
+                             group1 == "1" & group2 == "3" ~ "3")) 
+  
+  newname <- str_replace(j,"_"," ")
+  
+  pic <- trajectory %>% 
+    filter(str_detect(visit,"BM")) %>%
+    filter(delivery_mode=="Vaginal delivery") %>%
+    ggplot(aes(x = as.numeric(visit), y = get(j),
+               color = trajcluster))+
+    #geom_errorbar(mapping =  aes (ymax = traj_q3,
+    #                              ymin = traj_q1),  
+    #             width = 0.5,position="dodge2") +
+    geom_smooth(method = "loess", se = TRUE) +
+    #geom_point(aes(x = as.numeric(visit),y=traj_median,color = trajcluster),
+    #           size = 4,
+    #           position = position_dodge(width = 0.5))+
+    #geom_line(aes(x = as.numeric(visit),y=traj_median, fill=trajcluster,
+    #              group =trajcluster,color = trajcluster),position = position_dodge(width = 0.5))+
+    theme_classic() +
+    xlab("Visit") +
+    ylab("Relative abundance(log 10 transformation)") +
+    scale_fill_manual(values = c("#e95280","#23b1a5","#e49b0f")) +
+    scale_color_manual(values = c("#e95280","#23b1a5","#e49b0f")) +
+    ggtitle(label = paste0(newname,"\nCaesarean section"))+
+    theme (plot.title = element_text (size = 14, face = "bold" ))+
+    guides(color=guide_legend(title="Trajectory"))+
+    scale_x_discrete(limits=c("BM1.5","BM6","BM12","BM24","BM36"))+
+    theme(axis.text=element_text(size=20,face="bold", color = "black"), 
+          axis.title=element_text(size=24,face="bold"), 
+          legend.text = element_text(size=20,face="bold"), 
+          legend.title = element_text(size=20,face="bold"), 
+          plot.title = element_text(size=26, face="italic", hjust = 0.5), 
+          axis.text.x = element_text(size=20,face="bold",angle = 315, hjust = -0.01))  +
+    stat_pvalue_manual(
+      stat.test,  
+      y.position = -4.5, size = 6 ,label = "p.adj.signif", tip.length = 0, color = "color",hide.ns = T
+    )
+  ggsave(paste0(j,"Vaginal delivery.pdf"),width =20,height = 20,units = "cm")
+}
+
+
+
+
+
+
+##########################################
+#plot in exclusively breastfeeding
+##########################################
+
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/differentiatingspecies_for_offspring/")
+
+
+#for (j in colnames(otudf)[str_detect(colnames(otudf),"Bifidobacterium")]){
+for (j in colnames(otudf)[str_detect(colnames(otudf),"Bifidobacterium_adolescentis")]){
+  
+  stat.test <- trajectory %>%
+    filter(feeding_m6=="1") %>%
+    filter(str_detect(visit,"BM")) %>%
+    group_by(visit) %>%
+    wilcox_test(reformulate("trajcluster", j ),p.adjust.method = "BH") %>%
+    add_significance("p.adj") %>%
+    mutate(p.adj = round(p.adj,3)) 
+  
+  stat.test <- stat.test %>%
+    add_xy_position(x = "visit",step.increase = 0.05,fun = "median_iqr",
+                    dodge = 0.5) %>%
+    mutate(color = case_when(group1 == "1" & group2 == "2" ~ "1",
+                             group1 == "2" & group2 == "3" ~ "2",
+                             group1 == "1" & group2 == "3" ~ "3")) 
+  
+  newname <- str_replace(j,"_"," ")
+  
+  pic <- trajectory %>% 
+    filter(str_detect(visit,"BM")) %>%
+    filter(feeding_m6=="1") %>%
+    ggplot(aes(x = as.numeric(visit), y = get(j),
+               color = trajcluster))+
+    #geom_errorbar(mapping =  aes (ymax = traj_q3,
+    #                              ymin = traj_q1),  
+    #             width = 0.5,position="dodge2") +
+    geom_smooth(method = "loess", se = TRUE) +
+    #geom_point(aes(x = as.numeric(visit),y=traj_median,color = trajcluster),
+    #           size = 4,
+    #           position = position_dodge(width = 0.5))+
+    #geom_line(aes(x = as.numeric(visit),y=traj_median, fill=trajcluster,
+    #              group =trajcluster,color = trajcluster),position = position_dodge(width = 0.5))+
+    theme_classic() +
+    xlab("Visit") +
+    ylab("Relative abundance(log 10 transformation)") +
+    scale_fill_manual(values = c("#e95280","#23b1a5","#e49b0f")) +
+    scale_color_manual(values = c("#e95280","#23b1a5","#e49b0f")) +
+    ggtitle(label = paste0(newname,"\nBF"))+
+    theme (plot.title = element_text (size = 14, face = "bold" ))+
+    guides(color=guide_legend(title="Trajectory"))+
+    scale_x_discrete(limits=c("BM1.5","BM6","BM12","BM24","BM36"))+
+    theme(axis.text=element_text(size=20,face="bold", color = "black"), 
+          axis.title=element_text(size=24,face="bold"), 
+          legend.text = element_text(size=20,face="bold"), 
+          legend.title = element_text(size=20,face="bold"), 
+          plot.title = element_text(size=26, face="italic", hjust = 0.5), 
+          axis.text.x = element_text(size=20,face="bold",angle = 315, hjust = -0.01))  +
+    stat_pvalue_manual(
+      stat.test,  
+      y.position = -4.5, size = 6 ,label = "p.adj.signif", tip.length = 0, color = "color",hide.ns = T
+    )
+  ggsave(paste0(j,"BF.pdf"),width =20,height = 20,units = "cm")
+}
+
+
+
+##########################################
+#plot de for mother
+##########################################
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/differentiatingspecies_for_mother/")
+motherdiff <- c("Bifidobacterium_pseudocatenulatum","Phocaeicola_coprocola",
+                "Bacteroides_uniformis","Bacteroides_thetaiotaomicron")
+
+for (j in motherdiff){
+  
+  
+  stat.test <- trajectorymaternal %>%
+    group_by(visit) %>%
+    wilcox_test(reformulate("trajcluster", j ),p.adjust.method = "BH") %>%
+    add_significance("p.adj") %>%
+    mutate(p.adj = round(p.adj,3)) 
+  
+  stat.test <- stat.test %>%
+    add_xy_position(x = "visit",step.increase = 0.08,fun = "median_iqr",
+                    dodge = 0.8) %>%
+    mutate(color = case_when(group1 == "1" & group2 == "2" ~ "1",
+                             group1 == "2" & group2 == "3" ~ "2",
+                             group1 == "1" & group2 == "3" ~ "3")) 
+  
+  newname <- str_replace(j,"_"," ")
+  
+  pic <- trajectorymaternal %>% 
+    dplyr::select(all_of(j),trajcluster, visit) %>%
+    group_by(trajcluster, visit) %>%
+    mutate(
+      traj_median = median(get(j), na.rm=TRUE),
+      traj_q1 = quantile(get(j), 0.25, na.rm=TRUE),
+      traj_q3 = quantile(get(j), 0.75, na.rm=TRUE)
+    ) %>%
+    ggplot(aes(x = visit, y = get(j),
+               color = trajcluster))+
+    geom_boxplot(outlier.size = 0.2, color = "black",  # box border
+                 lwd = 0.5,                            # line width
+                 aes(fill = trajcluster)) +
+    theme_classic() +
+    xlab("Visit") +
+    ylab("Relative abundance(log 10 transformation)") +
+    scale_fill_manual(values = c("#e95280","#23b1a5","#e49b0f")) +
+    scale_color_manual(values = c("#e95280","#23b1a5","#e49b0f")) +
+    ggtitle(label = paste0(newname))+
+    theme (plot.title = element_text (size = 14, face = "bold" ))+
+    guides(color=guide_legend(title="Trajectory"))+
+    theme(axis.text=element_text(size=20,face="bold", color = "black"), 
+          axis.title=element_text(size=24,face="bold"), 
+          legend.text = element_text(size=20,face="bold"), 
+          legend.title = element_text(size=20,face="bold"), 
+          plot.title = element_text(size=26, face="italic", hjust = 0.5), 
+          axis.text.x = element_text(size=20,face="bold",angle = 315, hjust = -0.01))  +
+    stat_pvalue_manual(
+      stat.test,  
+      y.position = -4.5, size = 6 ,label = "p.adj.signif", tip.length = 0, color = "color",hide.ns = T
+    )
+  ggsave(paste0(j,".pdf"),width =20,height = 20,units = "cm")
+}
