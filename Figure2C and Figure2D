@@ -1,0 +1,206 @@
+rm(list = ls())
+library(tidyverse)
+library(ggplot2)
+library(hrbrthemes)
+library(viridis)
+
+
+BM <- filterBM %>%
+  mutate(visittype = case_when(
+    visittype == "BM1\\.5.*\\.rda" ~"BM1.5",
+    visittype == "^BM6.*\\.rda$" ~"BM6",
+    visittype == "^BM12.*\\.rda$" ~ "BM12",
+    visittype == "^BM24.*\\.rda$" ~ "BM24",
+    visittype == "^BM36.*\\.rda$"  ~ "BM36"))  %>%
+  group_by(visittype)  %>%
+  mutate(q = p.adjust(V3,method="BH",n = n())) %>%
+  mutate(Significance = case_when(
+    q < 0.01  ~ "p.adjust <0.01",
+    q < 0.05 & q >= 0.01 ~ "p.adjust <0.05",
+    q < 0.1 & q > 0.05 ~ "p.adjust <0.1",
+    TRUE ~ "Not significant") )%>%
+  mutate( Significance = factor(Significance, levels = c(
+      "p.adjust <0.01",
+      "p.adjust <0.05",
+      "p.adjust <0.1",
+      "Not significant")
+  ))
+  
+  
+BM$visittype <- factor(BM$visittype,levels = c("BM1.5","BM6","BM12","BM24","BM36"))
+
+BM_filter <- BM %>% 
+  mutate(newname = case_when( V1 ==  "delivery_mode" ~ "Delivery mode",
+                              V1 == "feeding_type_28days" ~ "Feeding type",
+                              V1 == "BMI_mo" ~ "Prepregnancy BMI",
+                              V1 == "preterm" ~ "Preterm",
+                              V1 == "gender_kid" ~ "Gender",
+                              V1 == "edu_fa" ~ "Education level of father",
+                              V1 == "edu_mo" ~ "Education level of mother",
+                              V1 == "family_income" ~ "Family income",
+                              V1 == "gravida" ~ "Gravida",
+                              V1 == "Age_mo" ~ "Age of mother",
+                              V1 == "Age_fa" ~ "Age of father",
+                              V1 == "TG" ~ "TG",
+                              V1 == "HDLC" ~ "HDLC",
+                              V1 == "AST" ~ "AST",
+                              V1 == "BUN" ~ "BUN",
+                              V1 == "GDM_group2023" ~ "GDM",
+                              V1 == "class_1" ~ "Trajectory",
+         
+                              TRUE ~ V1
+                              ))
+                              
+  
+  
+target <- c("Delivery mode", "Feeding type","Prepregnancy BMI","Preterm","Gender",
+            "Education level of father","Education level of mother","Age of mother","Age of father",
+            "HDLC","TG","AST","BUN","GDM","Trajectory")
+
+  
+BM_pic <- BM_filter %>%
+  filter(newname %in% target)  %>%
+  ggplot(aes(x = factor(newname,level = target), 
+            y = visittype,color = V2*100,
+            shape = Significance)) +
+  geom_point(size=5) +
+  #scale_fill_manual(values = c("#8c2a2f","#d45a00","#f7d098","white")) +
+  #scale_color_manual(values = c("#8c2a2f","#d45a00","#f7d098","white")) +
+  ylab("Visit") +
+  xlab("Phenotype") +
+  scale_color_gradientn(
+    colours = c("#f7fcf5", "#c7e9c0", "#74c476", "#238b45"),
+    values  = scales::rescale(c(0, 1, 5, 10)),  # expand low end
+    name = "Variation explained \n (partial R-squared)"
+  )+
+  ggtitle(label = "")+
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=18,face="bold"), 
+        legend.text = element_text(size=24,face="bold"), 
+        legend.title = element_text(size=24,face="bold"), 
+
+        plot.title = element_text(size=20, face="bold", hjust = 0.5), 
+        axis.text.x = element_text(size=18,face="bold",angle = 45, hjust = 1))+
+  theme(axis.text.y   = element_text(size=14),
+        axis.text.x   = element_text(size=14),
+        axis.title.y  = element_text(size=14),
+        axis.title.x  = element_text(size=14),
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=1))+ 
+        guides(fill = guide_legend(override.aes = list(size=8)))
+
+
+load("MG.rda")
+
+
+MG <- MG %>%
+  mutate(visittype = case_when(
+  visittype == "^MG1.*\\.rda$" ~"MG1",
+  visittype == "^MG2.*\\.rda$" ~"MG2",
+  visittype == "^MG3.*\\.rda$" ~ "MG3"))  
+
+MG$visittype <- factor(MG$visittype,levels = c("MG1","MG2","MG3"))
+
+
+vars_to_keep <- c(
+  "weight_mo_pre_preg",
+  "weight_mo_first_check",
+  "weight_before_delivery",
+  "BMI_mo",
+  "GDM_group2023",
+  "hypothyroidism_history_mo",
+  "Age_mo",
+  "edu_mo",
+  "TG",
+  "HDLC",
+  "UA.y",
+  "coffee_freq_prepreg",
+  "class_1"
+)
+
+# Corresponding readable names
+readable_names <- c(
+  "Prepregnancy weight",
+  "Weight at first prenatal visit",
+  "Weight before delivery",
+  "Prepregnancy BMI",
+  "GDM",
+  "History of maternal hypothyroidism",
+  "Age of mother",
+  "Education level of mother",
+  "TG",
+  "HDLC",
+  "UA",
+  "Coffee drinking frequency before pregnancy",
+  "Trajectory"
+)
+
+# Create a named vector for renaming
+name_map <- setNames(readable_names, vars_to_keep)
+
+# Apply to your dataset
+MG_filter <- MG %>%
+  dplyr::mutate(newname = name_map[V1])
+
+
+target <- c(
+  # Maternal anthropometrics
+  "Prepregnancy weight",
+  "Weight at first prenatal visit",
+  "Weight before delivery",
+  "Prepregnancy BMI",
+  "Age of mother",
+  "Education level of mother",
+  
+  # Maternal health / conditions
+  "GDM",
+  "History of maternal hypothyroidism",
+  
+  # Laboratory measures
+  "TG",
+  "HDLC",
+  "UA",
+  
+  # Lifestyle / exposures
+  "Coffee drinking frequency before pregnancy",
+  
+  # Child trajectory
+  "Trajectory"
+)
+
+MG_filter %>%
+  ggplot(aes(x = factor(newname,level = target), y = visittype,
+             color = V2*100, shape=Significance)) +
+  geom_point(size = 5) +
+  scale_color_gradientn(
+    colours = c("#f7fcf5", "#c7e9c0", "#74c476", "#238b45"),
+    values  = scales::rescale(c(0, 1, 5, 10)),  # expand low end
+    name = "Variation explained \n (partial R-squared)"
+  )+
+  ylab("Visit") +
+  xlab("Phenotype") +
+  ggtitle(label = "")+
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=18,face="bold"), 
+        legend.text = element_text(size=20,face="bold"), 
+        legend.title = element_text(size=20,face="bold"),
+        plot.title = element_text(size=20, face="bold", hjust = 0.5), 
+        axis.text.x = element_text(size=18,face="bold",angle = 60, hjust = 1))+
+  theme(axis.text.y   = element_text(size=14),
+        axis.text.x   = element_text(size=14),
+        axis.title.y  = element_text(size=14),
+        axis.title.x  = element_text(size=14),
+        panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        axis.line = element_line(colour = "black"),
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=1))+ 
+  guides(fill = guide_legend(override.aes = list(size=8)))  
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/Figure2C.pdf",width = 12, height = 8)
+
