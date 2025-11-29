@@ -1,0 +1,408 @@
+rm(list = ls())
+library(readr)
+library(vegan)
+library(tidyverse)
+library(ggpubr)
+library(scales)
+library(ggpubr)
+
+
+###########################################################
+#clustering heatmap for cazy 
+###########################################################
+load("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/spreadcazy.rda")
+complete_phylo <-  readRDS("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/ps_filtered.rds")
+
+metadata <- as.data.frame(complete_phylo@sam_data)
+class(metadata) <- "data.frame"
+metadata <- metadata %>%
+  rownames_to_column("sampleid") %>%
+  dplyr::select(sampleid,class_1,visit,zwhz_1:zwhz_7)
+
+
+otu <- as.data.frame(complete_phylo@otu_table)
+class(otu) <- "data.frame"
+otu  <-  otu %>%
+  rownames_to_column("sampleid") %>%
+  dplyr::select(sampleid,Bifidobacterium_pseudocatenulatum,Bifidobacterium_bifidum)
+
+
+
+spreadcazyforspecies <- spreadcazy %>%
+  left_join(otu,by="sampleid") %>%
+  filter(speciesname == "Bifidobacterium pseudocatenulatum")
+
+  
+# Step 1: Wilcoxon test
+stat_test <- spreadcazy %>%
+  filter(speciesname=="Bifidobacterium pseudocatenulatum") %>%
+  group_by(transmit) %>%
+  wilcox_test(sum_GT ~ class_1, detailed = TRUE, p.adjust.method = "BH") %>%
+  add_significance("p.adj") %>%
+  ungroup()
+
+# Step 2: Compute max y per facet
+y_pos <- spreadcazy %>%
+  group_by(transmit) %>%
+  summarise(y.position = max(sum_GT, na.rm = TRUE) * 1.05)
+
+# Step 3: Merge y.position into stat_test
+stat_test <- stat_test %>%
+  left_join(y_pos, by = "transmit")
+
+# Step 4: Create a column `class_1` for ggpubr to find
+# We'll set it to group1 for each comparison
+stat_test <- stat_test %>%
+  mutate(class_1 = group1)
+
+
+# Add small vertical dodge to y.position to avoid overlap
+stat_test <- stat_test %>%
+  group_by(transmit) %>%
+  arrange(group1, group2) %>%  # optional: ensure consistent order
+  mutate(y.position = y.position + (row_number() - 1) * 0.07 * max(y.position)) %>%
+  ungroup()
+
+spreadcazy$class_1 <- as.factor(spreadcazy$class_1)
+
+spreadcazy %>%
+  filter(speciesname=="Bifidobacterium pseudocatenulatum") %>%
+ggplot(aes(x = class_1, y = sum_GT, fill = class_1)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(aes(color = class_1), width = 0.2, alpha = 0.7, size = 1.5) +
+  facet_wrap(~transmit) +
+  scale_fill_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  scale_color_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  labs(
+    x = "Trajectory",
+    y = "Sum of GT gene count",
+    title = "Stratified by Transmission Status\nBifidobacterium pseudocatenulatum") +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 12, color = "white"),
+    strip.background = element_rect(fill = "black", color = "black"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  ) +
+  theme (plot.title = element_text (size = 16, face = "bold" ))+
+  stat_pvalue_manual(
+    stat_test,
+    label = "p.adj.signif",
+    tip.length = 0.02,
+    hide.ns = FALSE,
+    y.position = "y.position"
+  )
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/GT_Bifidobacterium_pseudocatenulatum_transmit_status.pdf",
+       width = 6, height = 6)
+
+
+
+
+
+####################################################################
+
+
+# Step 1: Wilcoxon test
+stat_test <- spreadcazy %>%
+  filter(speciesname=="Bifidobacterium pseudocatenulatum") %>%
+  group_by(transmit) %>%
+  wilcox_test(sum_GH ~ class_1, detailed = TRUE, p.adjust.method = "BH") %>%
+  add_significance("p.adj") %>%
+  ungroup()
+
+# Step 2: Compute max y per facet
+y_pos <- spreadcazy %>%
+  group_by(transmit) %>%
+  summarise(y.position = max(sum_GH, na.rm = TRUE) * 1.05)
+
+# Step 3: Merge y.position into stat_test
+stat_test <- stat_test %>%
+  left_join(y_pos, by = "transmit")
+
+# Step 4: Create a column `class_1` for ggpubr to find
+# We'll set it to group1 for each comparison
+stat_test <- stat_test %>%
+  mutate(class_1 = group1)
+
+
+# Add small vertical dodge to y.position to avoid overlap
+stat_test <- stat_test %>%
+  group_by(transmit) %>%
+  arrange(group1, group2) %>%  # optional: ensure consistent order
+  mutate(y.position = y.position + (row_number() - 1) * 0.07 * max(y.position)) %>%
+  ungroup()
+
+spreadcazy %>%
+  filter(speciesname=="Bifidobacterium pseudocatenulatum") %>%
+ggplot(aes(x = as.factor(class_1), y = sum_GH, fill = as.factor(class_1))) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.7) +
+  facet_wrap(~transmit) +
+  geom_jitter(aes(color = class_1), width = 0.2, alpha = 0.7, size = 1.5) +
+  scale_fill_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  scale_color_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  labs(
+    x = "Trajectory",
+    y = "Sum of Glycoside Hydrolases gene count",
+    title = "Stratified by Transmission Status\nBifidobacterium pseudocatenulatum"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 12, color = "white"),
+    strip.background = element_rect(fill = "black", color = "black"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  ) +
+  theme (plot.title = element_text (size = 16, face = "bold" ))+
+  stat_pvalue_manual(
+    stat_test,
+    label = "p.adj.signif",
+    tip.length = 0.02,
+    hide.ns = FALSE,
+    y.position = "y.position"
+  )
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/GH_Bifidobacterium_pseudocatenulatum_transmit_status.pdf",
+       width = 6, height = 6)
+
+
+###################################################################
+#
+#
+###################################################################
+# Ensure class_1 is factor
+
+load("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/spreadcazy.rda")
+spreadcazy$class_1 <- factor(spreadcazy$class_1, levels = c("1", "2", "3"))
+
+# Wilcoxon test per visit
+sum_GT_stat <- spreadcazy %>%  
+  filter(speciesname=="Bifidobacterium pseudocatenulatum" | speciesname=="Bifidobacterium bifidum" | speciesname =="Bifidobacterium adolescentis")%>% 
+  group_by(speciesname) %>%
+  filter(transmit == "transmitted between dyads") %>%
+  #group_by(visit) %>%
+  wilcox_test(sum_GT ~ class_1, detailed = TRUE, p.adjust.method = "BH") %>%
+  add_significance("p.adj") %>%
+  ungroup() %>%
+  mutate(
+    y.position = max(spreadcazy$sum_GT, na.rm = TRUE) * 1.05,
+    group1 = factor(group1, levels = levels(spreadcazy$class_1)),
+    group2 = factor(group2, levels = levels(spreadcazy$class_1))
+  ) %>%
+  add_xy_position(x = "class_1")  
+
+
+
+
+
+spreadcazy %>%
+  filter(speciesname=="Bifidobacterium pseudocatenulatum" | speciesname=="Bifidobacterium bifidum" | speciesname =="Bifidobacterium adolescentis")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  ggplot(aes(x = class_1, y = sum_GT, fill = class_1)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  facet_wrap(~speciesname)+
+  geom_jitter(aes(color = class_1), width = 0.2, alpha = 0.7, size = 1.5) +
+  scale_fill_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  scale_color_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  stat_pvalue_manual(
+    sum_GT_stat,
+    label = "p.adj.signif",
+    xmin = "group1",
+    xmax = "group2",
+    y.position = "y.position",
+    tip.length = 0.02,
+    hide.ns = FALSE,
+    inherit.aes = FALSE
+  ) +
+  labs(
+    x = "Trajectory",
+    y = "Gene count of GT",
+    title = "Transmitted genomes"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 12, color = "white"),
+    strip.background = element_rect(fill = "black", color = "black"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/GT_Bifidobacterium_transmitted.pdf",
+       width =9, height = 5)
+
+
+
+# Wilcoxon test per visit
+sum_GH_stat <- spreadcazy %>%  
+  filter(speciesname=="Bifidobacterium pseudocatenulatum" | speciesname=="Bifidobacterium bifidum" | speciesname =="Bifidobacterium adolescentis")%>%
+  group_by(speciesname) %>%
+  filter(transmit == "transmitted between dyads") %>%
+  #group_by(visit) %>%
+  wilcox_test(sum_GH ~ class_1, detailed = TRUE, p.adjust.method = "BH") %>%
+  add_significance("p.adj") %>%
+  ungroup() %>%
+  mutate(
+    y.position = max(spreadcazy$sum_GH, na.rm = TRUE) * 1.05,
+    group1 = factor(group1, levels = levels(spreadcazy$class_1)),
+    group2 = factor(group2, levels = levels(spreadcazy$class_1))
+  ) %>%
+  add_xy_position(x = "class_1")  
+
+
+
+
+
+spreadcazy %>%
+  filter(speciesname=="Bifidobacterium pseudocatenulatum" | speciesname=="Bifidobacterium bifidum" | speciesname =="Bifidobacterium adolescentis")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  ggplot(aes(x = class_1, y = sum_GH, fill = class_1)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  facet_wrap(~speciesname)+
+  geom_jitter(aes(color = class_1), width = 0.2, alpha = 0.7, size = 1.5) +
+  scale_fill_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  scale_color_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  stat_pvalue_manual(
+    sum_GH_stat,
+    label = "p.adj.signif",
+    xmin = "group1",
+    xmax = "group2",
+    y.position = "y.position",
+    tip.length = 0.02,
+    hide.ns = FALSE,
+    inherit.aes = FALSE
+  ) +
+  labs(
+    x = "Trajectory",
+    y = "Gene count of GH",
+    title = "Transmitted genomes"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 12, color = "white"),
+    strip.background = element_rect(fill = "black", color = "black"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/GH_Bifidobacterium_transmitted.pdf",
+       width =9, height = 5)
+
+
+
+
+load("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/spreadcazy.rda")
+# Wilcoxon test per visit
+sum_GT35_stat <-  spreadcazy%>%   filter(speciesname=="Bifidobacterium pseudocatenulatum")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  wilcox_test(GT35 ~ class_1, detailed = TRUE, p.adjust.method = "BH")
+
+# Wilcoxon test per visit
+sum_GT2_stat <-  spreadcazy%>%   
+  filter(speciesname=="Bifidobacterium pseudocatenulatum")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  wilcox_test(GT2~ class_1, detailed = TRUE, p.adjust.method = "BH")
+
+
+# Wilcoxon test per visit
+sum_GT4_stat <-  spreadcazy%>%   
+  filter(speciesname=="Bifidobacterium pseudocatenulatum")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  wilcox_test(GT4~ class_1, detailed = TRUE, p.adjust.method = "BH")
+
+sum_GH2_18_stat <- spreadcazy%>%   
+  filter(speciesname=="Bifidobacterium pseudocatenulatum")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  wilcox_test(GH2_18~ class_1, detailed = TRUE, p.adjust.method = "BH")
+
+
+sum_GH2_10_stat <- spreadcazy%>%   
+  filter(speciesname=="Bifidobacterium pseudocatenulatum")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  wilcox_test(GH2_10~ class_1, detailed = TRUE, p.adjust.method = "BH")
+
+
+
+sum_GT4_stat <- spreadcazy%>%   
+  filter(speciesname=="Bifidobacterium pseudocatenulatum")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  wilcox_test(GT4~ class_1, detailed = TRUE, p.adjust.method = "BH")
+
+
+GT_summary <- rbind(sum_GT35_stat,sum_GT2_stat,sum_GT4_stat,
+                    sum_GH2_18_stat,sum_GH2_10_stat)
+
+
+write.table(GT_summary, file =  "C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/GT_summary.csv",
+            fileEncoding = "GBK",col.names = T,row.names = F,
+            sep = ",",quote = F)
+
+
+
+
+
+
+lastpic <- spreadcazy%>%   
+  filter(speciesname=="Bifidobacterium pseudocatenulatum")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  group_by(visit) %>%
+  wilcox_test(sum_GH~ class_1, detailed = TRUE, p.adjust.method = "BH") %>%
+  add_significance("p.adj") %>%
+  ungroup() %>%
+  mutate(
+    y.position = max(spreadcazy$sum_GH, na.rm = TRUE) * 1.05
+  ) %>%
+  add_xy_position(x = "class_1")  
+
+
+sepspreadcazy<- spreadcazy
+
+sepspreadcazy$class_1 <- factor(sepspreadcazy$class_1)
+
+sepspreadcazy %>%
+  filter(speciesname=="Bifidobacterium pseudocatenulatum")%>%
+  filter(transmit == "transmitted between dyads") %>%
+  ggplot(aes(x = class_1, y = sum_GH, fill = class_1)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  facet_wrap(~visit)+
+  geom_jitter(aes(color = class_1), width = 0.2, alpha = 0.7, size = 1.5) +
+  scale_fill_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  scale_color_manual(values = c("1" = "#e95280", "2" = "#23b1a5", "3" = "#E49B0F")) +
+  stat_pvalue_manual(
+    lastpic,
+    label = "p.adj.signif",
+    xmin = "group1",
+    xmax = "group2",
+    y.position = "y.position",
+    tip.length = 0.02,
+    hide.ns = FALSE,
+    inherit.aes = FALSE
+  ) +
+  labs(
+    x = "Trajectory",
+    y = "Gene count of GH in Bifidobacterium pseudocatenulatum",
+    title = "Transmitted genomes"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(size = 12, color = "white"),
+    strip.background = element_rect(fill = "black", color = "black"),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/timecourseGH.pdf",
+       width = 8, height = 9)
+
+
+
+
+
+
