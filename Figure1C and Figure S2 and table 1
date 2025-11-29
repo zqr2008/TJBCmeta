@@ -1,0 +1,806 @@
+rm(list = ls())
+library(tidyverse)
+library(gtsummary)
+library(tableone)
+library(labelled)
+library(rstatix)
+library(writexl)
+library(officer)
+library(flextable)
+library(readxl)
+library(scales)
+setwd("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/")
+
+
+
+
+
+complete_phylo <-  readRDS("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/ps_filtered.rds")
+
+complete_phylo_pheno <- as.data.frame(complete_phylo@sam_data)
+class(complete_phylo_pheno) <- "data.frame"
+
+
+complete_phylo_pheno <- remove_labels(complete_phylo_pheno)
+
+
+complete_phylo_pheno <- complete_phylo_pheno %>%
+  mutate(trajcluster = paste0("Trajectory ",class_1))
+
+
+
+showtable1 <- c("trajcluster","Age_mo","BMI_mo","TG",
+                "LDLC","HDLC","height_mo","height_fa","edu_mo","smoking_mo",
+                "drinking_mo_18topreg","GDM_group2023","SBP_first_check",
+                "DBP_first_check","delivery_mode_kid","preterm","gestational_week_delivery",
+                "gender_kid","birth_weight","birth_length",
+                "SGA","LGA","macrosomia","feeding_type_28days")
+
+
+fortable1 <- complete_phylo_pheno %>%
+  distinct(familyid,.keep_all = T) %>%
+  dplyr::select(any_of(showtable1)) %>%
+  mutate(gestational_week_delivery = as.numeric(gestational_week_delivery))
+
+
+
+#################################################################
+#overall description, only for writing, please do not delete
+#################################################################
+tableaddinfor2 <- complete_phylo_pheno %>%
+  distinct(familyid,.keep_all = T) %>%
+  group_by(sjid_kid) %>%
+  summarise(
+    trajcluster = first(trajcluster),
+    obsesityby36month = case_when(
+      any(c_across(zwhz_1:zwhz_7) > 2, na.rm = TRUE) ~ "overweight",
+      any(c_across(zwhz_1:zwhz_7) < -2, na.rm = TRUE) ~ "lean",
+      TRUE ~ "normal"
+    ),
+    .groups = "drop"
+  ) %>%
+  tbl_summary(
+    by = trajcluster,
+    include = obsesityby36month
+  ) %>%
+  add_p(test = list(all_categorical() ~ "chisq.test.no.correct")) 
+
+
+
+ft <- as_flex_table(tableaddinfor2)
+save_as_docx("Trajectory healthy" = ft, path = "table1STrajectory_healthy.docx")
+
+df <- data.frame(
+  Trajectory = c("Trajectory 1", "Trajectory 2", "Trajectory 3"),
+  Underweight = c(5.4, 3.0, 20),
+  Normal = c(89, 82, 32),
+  Overweight = c(6.1, 15, 48)
+)
+
+df_long <- df %>%
+  pivot_longer(cols = c(Underweight, Normal, Overweight),
+               names_to = "Category", values_to = "Percent")
+
+# Matched-but-different colors
+matched_colors <- c("Underweight" = "#f26a96",
+                    "Normal" = "#33c2b2", 
+                    "Overweight" = "#F2B93B")
+
+ggplot(df_long, aes(x = Trajectory, y = Percent, fill = Category)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.8), width = 0.75) +
+  geom_text(aes(label = paste0(Percent, "%")),
+            position = position_dodge(width = 0.8), vjust = -0.3, size = 3) +
+  scale_fill_manual(values = matched_colors) +
+  labs(
+    title = "Child Growth by Trajectory",
+    x = "Growth Trajectory",
+    y = "Proportion (%)",
+    fill = "Obesity Category"
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_blank()
+  )
+
+ggsave("Figure 1C.pdf",width = 6, height = 6)
+
+
+
+tableaddinfor2separate <- complete_phylo_pheno %>%
+  distinct(familyid, .keep_all = TRUE) %>%
+  group_by(sjid_kid) %>%
+  summarise(
+    trajcluster = first(trajcluster),
+    across(
+      zwhz_1:zwhz_7,
+      ~ case_when(
+        .x > 2 ~ "overweight",
+        .x < -2 ~ "lean",
+        TRUE ~ "normal"
+      ),
+      .names = "cat_{col}"   # will generate cat_zwhz_1 … cat_zwhz_7
+    ),
+    .groups = "drop"
+  ) %>%
+  tbl_summary(
+    by = trajcluster,
+    include = starts_with("cat_")
+  ) %>%
+  add_p(test = list(all_categorical() ~ "chisq.test.no.correct"))
+
+
+
+
+
+
+# Step 1: classify each zwhz_* into categories
+zvars <- paste0("zwhz_", 1:7)
+
+complete_phylo_pheno_long <- complete_phylo_pheno %>%
+  distinct(familyid, .keep_all = TRUE) %>%
+  select(sjid_kid, trajcluster, all_of(zvars)) %>%
+  pivot_longer(cols = all_of(zvars), names_to = "timepoint", values_to = "zwhz") %>%
+  mutate(
+    obesity_cat = case_when(
+      zwhz > 2  ~ "overweight",
+      zwhz < -2 ~ "lean",
+      !is.na(zwhz) ~ "normal",
+      TRUE ~ NA_character_
+    )
+  )
+
+# Step 2: summarize each timepoint by trajcluster
+tableaddinfor2 <- complete_phylo_pheno_long %>%
+  group_by(trajcluster, timepoint) %>%
+  summarise(
+    n = n(),
+    overweight = sum(obesity_cat == "overweight", na.rm = TRUE),
+    lean = sum(obesity_cat == "lean", na.rm = TRUE),
+    normal = sum(obesity_cat == "normal", na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    overweight_prop = overweight / n,
+    lean_prop = lean / n,
+    normal_prop = normal / n
+  )
+
+plot_df <- tableaddinfor2 %>%
+  select(trajcluster, timepoint, lean_prop, normal_prop, overweight_prop) %>%
+  pivot_longer(cols = ends_with("_prop"),
+               names_to = "category",
+               values_to = "prop") %>%
+  mutate(category = factor(category,
+                           levels = c("lean_prop","normal_prop","overweight_prop"),
+                           labels = c("Lean","Normal","Overweight")))
+
+
+
+ggplot(plot_df, aes(x = timepoint, y = prop, fill = category, group = category)) +
+  geom_col(position = "fill") +
+  
+  # proportion labels next to the bar
+  geom_text(aes(label = scales::percent(prop, accuracy = 0.1)),
+            position = position_fill(vjust = 0.05), # slightly above the bar
+            size = 3) +
+  # connecting lines across timepoints
+  geom_line(aes(y = prop, color = category),
+            position = position_fill(),
+            size = 0.7,
+            show.legend = FALSE) +
+  
+  facet_wrap(~ trajcluster, ncol = 3) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    x = "Measurement",
+    y = "Proportion",
+    fill = "Phenotype"
+  ) +
+  theme_classic(base_size = 16) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+ggsave("whzscore_sparate.pdf",width = 14, height = 8)
+
+table1 <-  fortable1 %>%
+  tbl_summary(
+    by = trajcluster, # split table by group
+    missing = "no", # don't list missing data separately
+    label = list(Age_mo ~ "Age, years",
+                 BMI_mo ~ "Prepregnancy BMI, kg/m2",
+                 height_mo ~ "Maternal height, (cm)",
+                 height_fa ~"Paternal height, (cm)",
+                 edu_mo ~ "Education level",
+                 smoking_mo ~ "Current or former smoking",
+                 drinking_mo_18topreg ~ "Drinking during pregnancy",
+                 GDM_group2023 ~ "GDM",
+                 SBP_first_check ~ "SBP at first prenatal check-up, mmHg",
+                 DBP_first_check ~ "DBP at first prenatal check-up, mmHg",
+                 delivery_mode_kid ~ "Delivery mode",
+                 preterm ~ "Preterm",
+                 gestational_week_delivery ~"Week of gestation",
+                 gender_kid ~ "Gender of kid",
+                 birth_weight ~ "Birth weight of child, g",
+                 birth_length ~ "Birth length of child, cm",
+                 macrosomia ~ "Macrosomia",
+                 feeding_type_28days ~ "Feeding type")) |> 
+  add_n() |> # add column with total number of non-missing observations
+  # Add p-values with your preferred tests
+  add_p(test = list(all_categorical() ~ "chisq.test.no.correct")) |>
+  modify_header(label = "**Variable**") |> # update the column header
+  bold_labels() %>%
+
+
+
+  # ---- gestational_week_delivery ----
+modify_table_styling(
+  column = stat_1,
+  rows = variable == "gestational_week_delivery",
+  footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "gestational_week_delivery",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "gestational_week_delivery",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 3"
+  ) %>%
+  
+  # ---- birth_weight ----
+modify_table_styling(
+  column = stat_1,
+  rows = variable == "birth_weight",
+  footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "birth_weight",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "birth_weight",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 3"
+  ) %>%
+  
+  # ---- delivery_mode_kid ----
+modify_table_styling(
+  column = stat_1,
+  rows = variable == "delivery_mode_kid",
+  footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "delivery_mode_kid",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 3"
+  ) %>%
+  
+  # ---- preterm ----
+modify_table_styling(
+  column = stat_1,
+  rows = variable == "preterm",
+  footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "preterm",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 3"
+  ) %>%
+  
+  # ---- SGA ----
+modify_table_styling(
+  column = stat_1,
+  rows = variable == "SGA",
+  footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "SGA",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 3"
+  ) %>%
+  
+  # ---- LGA ----
+modify_table_styling(
+  column = stat_1,
+  rows = variable == "LGA",
+  footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "LGA",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 3"
+  ) %>%
+  
+  # ---- macrosomia ----
+modify_table_styling(
+  column = stat_1,
+  rows = variable == "macrosomia",
+  footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "macrosomia",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 3"
+  )   %>%
+  
+  
+  #height
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "height_mo",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "height_mo",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 3"
+  )    %>%
+  #height
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "TG",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 3"
+  )
+ 
+
+
+
+
+ft <- as_flex_table(table1)
+save_as_docx("Baseline Characteristics" = ft, path = "table1baseline.docx")
+
+
+
+
+
+pairwise.t.test(fortable1[["gestational_week_delivery"]], fortable1[["trajcluster"]], p.adj = "BH")
+pairwise.t.test(fortable1[["birth_weight"]], fortable1[["trajcluster"]], p.adj = "BH")
+pairwise.t.test(fortable1[["height_mo"]], fortable1[["trajcluster"]], p.adj = "BH")
+pairwise.t.test(fortable1[["TG"]], fortable1[["trajcluster"]], p.adj = "BH")
+
+
+
+xtab <- table(fortable1$trajcluster,fortable1$delivery_mode_kid)
+pairwise_prop_test(xtab,p.adjust.method = "BH")
+
+xtab <- table(fortable1$trajcluster,fortable1$preterm)
+pairwise_prop_test(xtab,p.adjust.method = "BH")
+
+
+xtab <- table(fortable1$trajcluster,fortable1$SGA)
+pairwise_prop_test(xtab,p.adjust.method = "BH")
+
+xtab <- table(fortable1$trajcluster,fortable1$LGA)
+pairwise_prop_test(xtab,p.adjust.method = "BH")
+
+xtab <- table(fortable1$trajcluster,fortable1$macrosomia)
+pairwise_prop_test(xtab,p.adjust.method = "BH")
+
+#exceeding two columns, can not compute
+#xtab <- table(fortable1$trajcluster,fortable1$feeding_type_28days)
+#pairwise_prop_test(xtab)
+
+
+
+
+fortableS1 <- complete_phylo_pheno %>%
+  distinct(familyid,.keep_all = T) %>%
+  dplyr::select(trajcluster,ends_with("_1"),ends_with("_2"),
+                ends_with("_3"),ends_with("_4"),ends_with("_5")) %>%
+  dplyr::select(-c(starts_with("zBMI")))
+
+
+
+
+tables1 <- fortableS1 %>%
+  tbl_summary(
+    by = trajcluster, # split table by group
+    missing = "no" # don't list missing data separately
+    ) |> 
+  add_n() |> # add column with total number of non-missing observations
+  add_p(test = list(all_categorical() ~ "chisq.test.no.correct")) |> # test for a difference between groups
+  modify_header(label = "**Variable**") |> # update the column header
+  bold_labels() %>%
+  modify_caption("**Table S1. Trajectories Characteristics**") |>
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "weight_1",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "weight_1",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "weight_1",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "height_1",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "height_1",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "height_1",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zhaz_1",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zhaz_1",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zhaz_1",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwaz_1",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwaz_1",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwaz_1",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwhz_1",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwhz_1",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwhz_1",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  )   %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "weight_2",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "weight_2",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "weight_2",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "height_2",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "height_2",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "height_2",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zhaz_2",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zhaz_2",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zhaz_2",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  )%>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwaz_2",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwaz_2",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwaz_2",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwhz_2",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwhz_2",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwhz_2",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "weight_3",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "weight_3",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "weight_3",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "height_3",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "height_3",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "height_3",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zhaz_3",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zhaz_3",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zhaz_3",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwhz_3",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwhz_3",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwhz_3",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwaz_3",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwaz_3",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwaz_3",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "weight_4",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "weight_4",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "weight_4",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "height_4",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "height_4",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "height_4",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zhaz_4",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zhaz_4",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zhaz_4",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  )%>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwaz_4",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwaz_4",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwaz_4",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwhz_4",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwhz_4",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwhz_4",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "weight_5",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "weight_5",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "weight_5",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "height_5",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "height_5",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "height_5",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zhaz_5",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zhaz_5",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zhaz_5",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  )%>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwaz_5",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwaz_5",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwaz_5",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+    column = stat_1,
+    rows = variable == "zwaz_5",
+    footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+  ) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwaz_5",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwaz_5",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  modify_table_styling(
+  column = stat_1,
+  rows = variable == "zwhz_5",
+  footnote = "Significantly different between Trajectory 1 and Trajectory 2"
+) %>%
+  modify_table_styling(
+    column = stat_2,
+    rows = variable == "zwhz_5",
+    footnote = "Significantly different between Trajectory 2 and Trajectory 3"
+  ) %>%
+  modify_table_styling(
+    column = stat_3,
+    rows = variable == "zwhz_5",
+    footnote = "Significantly different between Trajectory 3 and Trajectory 1"
+  ) %>%
+  as_gt() |> 
+  gt::gtsave(filename = "tableS1baseline.docx")
+
