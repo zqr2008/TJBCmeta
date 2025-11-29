@@ -1,0 +1,392 @@
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+library(ggpubr)
+library(rstatix)
+
+
+complete_phylo <- readRDS("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/ps_filtered.rds")
+
+#complete_phylo <- aggregate_taxa(complete_phylo, "Genus")
+
+metadata <- as.data.frame(complete_phylo@sam_data)
+class(metadata) <- "data.frame"
+
+metadata <- metadata %>%
+  rownames_to_column("sampleid") %>%
+  dplyr::select(sampleid,class_1,visit) %>%
+  mutate(Samp1 = sampleid)
+
+basicinfo <- as.data.frame(table(metadata$visit,metadata$class_1)) %>%
+  dplyr::rename(visit = Var1,
+                class_1 = Var2)
+
+
+inStrain_C_genome <- read_delim("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/1.inStrain_C_genome.profile", 
+                                   delim = "\t", escape_double = FALSE, 
+                                   trim_ws = TRUE) %>%
+  mutate(
+    genus = str_extract(classification, "g__[^;]+") %>% str_remove("^g__"),
+    species = str_extract(classification, "s__[^;]+") %>% str_remove("^s__")
+  ) %>%
+  left_join(metadata,by ="Samp1") %>%
+  mutate(
+    pair_visit = paste(pmin(Visit1, Visit2), pmax(Visit1, Visit2), sep = "_")
+  ) %>%
+  filter(popANI>0.99999 & percent_compared >0.5)
+
+
+
+Bifidobacterium_same  <- inStrain_C_genome %>%
+  filter(genus=="Bifidobacterium")
+
+
+save(Bifidobacterium_same,file = "Bifidobacterium_same.rda")
+
+
+offspringvisit <- c("BM1.5","BM6","BM12","BM24","BM36","BM1.5")
+
+instrain_release_rate <- data.frame()
+x = 1
+
+
+for (speciesnumber in levels(factor(inStrain_C_genome$species))){
+  for (mm in c(1:(length(offspringvisit)-1))){
+    for (tt in levels(factor(inStrain_C_genome$class_1))){
+      
+      
+      specieswithnext <- inStrain_C_genome %>%
+        filter(str_detect(pair_visit,offspringvisit[mm]) & str_detect(pair_visit,offspringvisit[mm+1]) ) %>%
+        filter(class_1 == tt) %>%
+        filter(species == speciesnumber)
+        
+      basnumber <- basicinfo %>%
+        filter(class_1 == tt ) %>%
+        filter(visit == offspringvisit[mm])
+        
+
+    
+      instrain_release_rate[x,1] <- speciesnumber
+      instrain_release_rate[x,2] <- offspringvisit[mm]
+      instrain_release_rate[x,3] <- offspringvisit[mm+1]
+      instrain_release_rate[x,4] <- tt
+      instrain_release_rate[x,5] <- dim(specieswithnext)[1]
+      instrain_release_rate[x,6] <- dim(specieswithnext)[1]/basnumber[1,3]
+      instrain_release_rate[x,7] <- basnumber[1,3] - dim(specieswithnext)[1] 
+      
+      print(paste0(offspringvisit[mm],offspringvisit[mm+1],speciesnumber))
+      x = x + 1
+    }
+  } 
+}
+
+
+
+instrain_release_rate_df <- instrain_release_rate %>%
+  dplyr::rename(Visit = V2,
+                `Next visit` = V3,
+                Trajectory = V4,
+                `Transmitted number` = V5,
+                `Transmissibility` = V6,
+                `Not transmitted number` = V7)  %>%
+  group_by(V1, Visit) %>%
+  # Keep groups where not all V5 are zero (i.e., at least one is nonzero)
+  mutate(Transmissibility = as.numeric(Transmissibility)) %>%
+  filter(Visit != "BM36") %>%
+  filter(sum(Transmissibility, na.rm = TRUE) > 0) %>%
+  filter(!is.na(Transmissibility),
+         Transmissibility >= 0, Transmissibility <= 1) %>%
+  ungroup()
+
+
+save(instrain_release_rate_df,file = "C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/instrain_persistance.rda")
+
+
+load("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/instrain_persistance.rda")
+
+storedf <- data.frame()
+y = 1
+
+for (species in levels(factor(instrain_release_rate_df$V1))){
+  for (visit in levels(factor(instrain_release_rate_df$Visit))){
+    
+    
+    subtable <- instrain_release_rate_df %>%
+      filter(V1 == species & Visit == visit)
+    if(dim(subtable)[1]==0){
+      next
+    }
+    
+    xtable  <- cbind(as.matrix(subtable$`Transmitted number`),as.matrix(subtable$ `Not transmitted number`)) %>%
+      pairwise_fisher_test(p.adjust.method = "BH") %>%
+      mutate(group = paste0(group1,group2)) %>%
+      filter(group != "row1row3") %>%
+      mutate(group = case_when(group == "row1row2" ~"Trajectory 1 vs. Trajectory 2",
+                               group == "row2row3" ~"Trajectory 3 vs. Trajectory 2")) %>%
+      mutate(contrast =  NA) %>%
+      mutate(newp = case_when(p.adj < 0.05 ~ "*")) %>%
+      mutate(speciesname = species) %>%
+      mutate(visitvisit = visit) %>%
+      mutate(newgroup = paste0(visitvisit," ",group)) 
+    
+    xtable[1,"contrast"] <- subtable[1,"Transmissibility"] - subtable[2,"Transmissibility"] 
+    xtable[2,"contrast"] <- subtable[3,"Transmissibility"] - subtable[2,"Transmissibility"]   
+    
+    
+    storedf <- rbind(storedf,xtable)
+    
+    
+  }
+}
+
+
+
+storedf <- storedf %>%
+  mutate(sign = case_when(contrast > 0 ~ "Increase",
+                          contrast < 0 ~ "Decrease")) %>%
+  filter(is.na(sign) == FALSE) %>%
+  group_by(speciesname) %>%
+  filter(any(p.adj < 0.05)) %>%
+  ungroup()
+
+save(storedf,file = "C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/instrain_persistance_statistics.rda")
+
+
+storedf$speciesname <-factor(storedf$speciesname)
+
+storedf$newgroup <- factor(storedf$newgroup,
+                           levels =c(
+                             "BM1.5 Trajectory 1 vs. Trajectory 2",
+                             "BM1.5 Trajectory 3 vs. Trajectory 2",
+                             "BM6 Trajectory 1 vs. Trajectory 2",
+                             "BM6 Trajectory 3 vs. Trajectory 2",
+                             "BM12 Trajectory 1 vs. Trajectory 2",
+                             "BM12 Trajectory 3 vs. Trajectory 2",
+                             "BM24 Trajectory 1 vs. Trajectory 2",
+                             "BM24 Trajectory 3 vs. Trajectory 2"
+                           ),labels = c(
+                             "BM6 persistance Trajectory 1 vs. Trajectory 2",
+                             "BM6 persistance 3 vs. Trajectory 2",
+                             "BM12 persistance 1 vs. Trajectory 2",
+                             "BM12 persistance3 vs. Trajectory 2",
+                             "BM24 persistance 1 vs. Trajectory 2",
+                             "BM24 persistance vs. Trajectory 2",
+                             "BM36 persistance 1 vs. Trajectory 2",
+                             "BM36 persistance 3 vs. Trajectory 2"
+                           ))
+
+storedf %>%
+  ggplot(aes(x= newgroup,y= speciesname,shape= group, color = sign)) + 
+  geom_point(aes(size = abs(contrast)))+
+  geom_text(aes(label = newp),color = "black",size = 12)+
+  xlab("")+
+  ylab("") +
+  scale_color_manual(values =  c("#00adb5","#ff5722"))+
+  scale_y_discrete(labels = function(x)str_replace(x,"_"," "))+
+  theme_classic()+
+  scale_size(range = c(0.01,10))+
+  theme (plot.title = element_text (size = 14, face = "bold" ))+
+  theme(axis.text=element_text(size=16,face="bold", color = "black"), 
+        axis.title=element_text(size=16,face="bold"), 
+        legend.text = element_text(size=10,face="bold"), 
+        legend.title = element_text(size=16,face="bold"), 
+        axis.text.y =  element_text(face = "italic"),
+        plot.title = element_text(size=20, face="bold", hjust = 0.5),
+        axis.text.x = element_text(size=18,face="bold",angle = 45, hjust = 1))+
+  theme(panel.grid.major.y = element_line(size = 0.5,
+                                          linetype = 2))+
+  theme(panel.grid.major.x = element_line(size = 0.5,
+                                          linetype = 2))+
+  theme(strip.text.x = element_text(size = 16)) +
+  theme(legend.position = "left",  legend.box = "vertical") +
+  labs(shape = "Contrast") +
+  guides(shape=guide_legend(nrow=2))+
+  labs(size = "offspring persistance difference") +
+  guides(size=guide_legend(nrow=2))+
+  labs(color = "Trajectory status")+
+  guides(color=guide_legend(nrow=2))
+
+
+
+ggsave("releaserate_instrain.pdf",width = 12, height = 12)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+storedf <- data.frame()
+y = 1
+
+for (species in levels(factor(instrain_release_rate_df$V1))){
+  for (visit in levels(factor(instrain_release_rate_df$Visit))){
+    
+    
+    subtable <- instrain_release_rate_df %>%
+      filter(V1 == species & Visit == visit)
+    if(dim(subtable)[1]==0){
+      next
+    }
+    
+    
+    subtable2 <- subtable %>%
+      mutate(Trajectory = as.character(Trajectory)) %>%
+      
+      # Create long format
+      pivot_longer(cols = c(`Transmitted number`, `Not transmitted number`),
+                   names_to = "Type", values_to = "Count") %>%
+      
+      # For each trajectory, create comparison vs the others
+      group_by(Type) %>%
+      summarise(
+        Comparison = c(
+          "Trajectory 1 vs non-1",
+          "Trajectory 2 vs non-2",
+          "Trajectory 3 vs non-3"
+        ),
+        Focal = c(
+          Count[Trajectory == "1"],
+          Count[Trajectory == "2"],
+          Count[Trajectory == "3"]
+        ),
+        Others = c(
+          sum(Count[Trajectory != "1"]),
+          sum(Count[Trajectory != "2"]),
+          sum(Count[Trajectory != "3"])
+        ),
+        .groups = "drop"
+      )
+    
+    
+    # 1. reshape into wide format
+    fish_input <- subtable2 %>%
+      pivot_wider(
+        names_from = Type,
+        values_from = c(Focal, Others)
+      )
+    # Columns created:
+    # Focal_Transmitted number
+    # Others_Transmitted number
+    # Focal_Not transmitted number
+    # Others_Not transmitted number
+    
+    
+    # 2. Apply Fisher's test with CI
+    stat_table <- fish_input %>%
+      rowwise() %>%
+      mutate(
+        fisher_res = list(
+          fisher.test(
+            matrix(
+              c(
+                `Focal_Transmitted number`,
+                `Others_Transmitted number`,
+                `Focal_Not transmitted number`,
+                `Others_Not transmitted number`
+              ),
+              nrow = 2,
+              byrow = TRUE
+            ),
+            alternative = "two.sided",
+            conf.int = TRUE
+          )
+        ),
+        p_value = fisher_res$p.value,
+        odds_ratio = unname(fisher_res$estimate),
+        ci_lower = fisher_res$conf.int[1],
+        ci_upper = fisher_res$conf.int[2]
+      ) %>%
+      ungroup() %>%
+      select(
+        Comparison,
+        odds_ratio,
+        ci_lower,
+        ci_upper,
+        p_value,
+        `Focal_Transmitted number`,
+        `Others_Transmitted number`,
+        `Focal_Not transmitted number`,
+        `Others_Not transmitted number`
+      ) %>%
+      mutate(speciesname = species) %>%
+      mutate(visitvisit = visit)  %>%
+      mutate(p.adj= p.adjust(p_value,method="BH"))
+    
+    
+    storedf <- rbind(storedf,stat_table)
+    
+  }
+}
+
+
+
+storedf$speciesname <-factor(storedf$speciesname)
+
+storedf$visitvisit <- factor(storedf$visitvisit,
+                             levels = c("BM1.5","BM6","BM12","BM24"),
+                             labels = c("BM6 vs. BM1.5",
+                                        "BM12 vs. BM6",
+                                        "BM24 vs. BM12",
+                                        "BM36 vs. BM24"))
+
+storedf %>%
+  group_by(speciesname) %>%
+  mutate(sign = case_when(
+    odds_ratio > 1 ~ "Increase",
+    odds_ratio < 1 ~ "Decrease"
+  )) %>%
+  filter(any(p.adj < 0.05)) %>%
+  mutate(psign = ifelse(p.adj < 0.05, "*", "")) %>%
+  ggplot(aes(x = visitvisit, y = speciesname,shape = Comparison, color = sign)) +
+  geom_point(aes(size = abs(odds_ratio))) +
+  geom_text(aes(label = psign), color = "black", size = 12,
+            nudge_y = -0.1) +
+  facet_grid(~ Comparison) +          # <<< SPREAD BY COMPARISON
+  xlab("") + ylab("") +
+  scale_color_manual(values = c("#00adb5","#ff5722")) +
+  scale_y_discrete(labels = \(x) str_replace(x, "_", " ")) +
+  scale_size(range = c(0.01,10)) +
+  theme_classic(base_size = 16) +
+  theme(
+    axis.text.y = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 45, hjust = 1, face="bold"),
+    strip.text = element_text(size = 16, face = "bold"),
+    legend.position = "bottom"
+  ) +
+  labs(
+    shape = "Contrast",
+    color = "Trajectory status",
+    size = "Offspring persistence difference"
+  )+
+  guides(
+    shape = guide_legend(nrow = 3, byrow = TRUE),
+    size  = guide_legend(nrow = 3, byrow = TRUE),
+    color = guide_legend(nrow = 3, byrow = TRUE)
+  )
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/releaserate_instrain.pdf",width = 18, height = 9)
+
+
+
+storedf2 <- storedf %>%
+  group_by(speciesname) %>%
+  mutate(sign = case_when(
+    odds_ratio > 1 ~ "Increase",
+    odds_ratio < 1 ~ "Decrease"
+  )) %>%
+  filter(any(p.adj < 0.05)) %>%
+  mutate(psign = ifelse(p.adj < 0.05, "*", "")) 
+
+write.table(storedf2, file = "C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/persistance_statistic.csv",
+            fileEncoding = "GBK",row.names = F,col.names = T,
+            quote = F,sep = ",")
