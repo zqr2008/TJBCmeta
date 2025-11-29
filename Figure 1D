@@ -1,0 +1,125 @@
+rm(list = ls())
+library(phyloseq)
+library(dplyr)
+library(randomForest)
+library(ggplot2)
+library(microbiome)
+library(microViz)
+library(tidyverse)
+library(ggpubr)
+library(rstatix)
+library(haven)
+
+m6 <-read_sav("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/metadata/喂养数据250617/m6.sav")
+y1 <- read_sav("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/metadata/喂养数据250617/y1.sav")
+
+load("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/who_m6.rda")
+load("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/who_y1.rda")
+
+complete_phylo <- readRDS("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/ps_filtered.rds")
+
+#complete_phylo <- aggregate_taxa(complete_phylo, "Genus")
+
+metadata <- as.data.frame(complete_phylo@sam_data)
+class(metadata) <- "data.frame"
+
+
+
+smallmetadata <- metadata  %>%
+  dplyr::rename(IDchild = sjid_kid) %>%
+  dplyr::select(IDchild,class_1,feeding_type_28days,delivery_mode,gestational_week_delivery,TG,height_mo,class_1) 
+
+studypheno6month <- smallmetadata %>%
+  inner_join(m6,by ="IDchild")
+  
+
+
+
+df <- studypheno6month %>%
+  mutate(class_1 = factor(class_1)) %>%
+  mutate(feeding_types_6_months= case_when(feeding_m6 ==1~"exclusive_breastfeeding",
+                                           feeding_m6 ==2~"exclusive_formula",
+                                           feeding_m6 ==3~"mixed_feeding")) %>%
+  dplyr::select(IDchild, feeding_type_28days ,feeding_types_6_months,delivery_mode,TG,height_mo,gestational_week_delivery,class_1) %>%
+  distinct(IDchild,.keep_all = T) %>%
+  mutate(class_1 = factor(class_1, levels = c(1,2,3))) %>%
+  mutate(delivery_mode = factor(delivery_mode,levels=c("Vaginal delivery","Caesarean section")))
+
+
+library(nnet)
+library(broom)
+
+# Set class 2 as reference
+df$class_1 <- relevel(df$class_1, ref = "2")
+df$delivery_mode <- relevel(df$delivery_mode, ref = "Vaginal delivery" )
+# Fit multinomial model
+fit <- multinom(class_1 ~ feeding_type_28days + feeding_types_6_months +
+                  delivery_mode + gestational_week_delivery+TG+height_mo,
+                data = df)
+
+
+
+
+# Get tidy coefficients
+tidy_fit <- broom::tidy(fit, exponentiate = TRUE, conf.int = TRUE) %>%
+  mutate(comparsion = case_when(y.level==1 ~ "Trajectory 1 vs. Trajectory 2",
+                                y.level==3 ~ "Trajectory 3 vs. Trajectory 2"))
+
+
+
+
+tidy_all <- tidy_fit %>%
+  select(term, estimate, conf.low, conf.high, p.value, comparsion) %>%
+  filter(term!="(Intercept)")
+
+
+# Dodge width
+dodge_width <- 0.6
+
+# Add a small offset to place p-values slightly to the right of CI
+pval_offset <- 1.05
+
+ggplot(tidy_all, aes(x = estimate, y = term, color = comparsion)) +
+  # Points
+  geom_point(position = position_dodge(width = dodge_width), size = 3) +
+  # Error bars
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high),
+                 position = position_dodge(width = dodge_width),
+                 height = 0.2) +
+  # P-values aligned with error bars (dodged)
+  geom_text(aes(x = conf.high * pval_offset, 
+                label = ifelse(p.value < 0.001, "p<0.001",
+                               paste0("p=", round(p.value,3)))),
+            position = position_dodge(width = dodge_width),
+            hjust = 0, size = 3) +
+  geom_vline(xintercept = 1, linetype = "dashed") +
+  scale_x_continuous(trans = "log10") +
+  scale_color_manual(values = c("Trajectory 1 vs. Trajectory 2" = "#e95280",
+                                "Trajectory 3 vs. Trajectory 2" = "#E49B0F")) +
+  scale_x_continuous(expand = expansion(mult = c(0.3, 0.3)))+
+  labs(
+    x = "Odds Ratio 95% CI (log scale)",
+    y = ""
+  ) +
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_blank()
+  )+
+  scale_y_discrete(labels = c(
+    "height_mo"="Maternal height",
+    "feeding_type_28daysexclusive formula fed" = "Exclusive formula feeding at 28 days",
+    "feeding_type_28daysmixed feeding" = "Mixed feeding at 28 days",
+    "feeding_types_6_monthsexclusive_formula" = "Exclusive formula feeding at 6 months",
+    "feeding_types_6_monthsmixed_feeding" = "Mixed feeding at 6 months",
+    "delivery_modeCaesarean section" = "C-section",
+    "gestational_week_delivery" = "Gestational week at delivery"
+  ))
+
+ggsave("C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/Figure1D.pdf",width =18,height = 15,units = "cm")
+
+
+write.table(tidy_all, file = "C:/Users/zqr20/OneDrive - BGI Hong Kong Tech Co., Limited/文档/tjmeta/BIG_revision/tidy_all.csv",
+            fileEncoding = "GBK",row.names = F,col.names = T,
+            quote = F,sep = ",")
