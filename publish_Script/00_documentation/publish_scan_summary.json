@@ -1,0 +1,15 @@
+{
+  "scripts_scanned": 43,
+  "io_references": 193,
+  "issues": 0,
+  "categories": {
+    "01_metadata_qc_baseline_Metadata_QC_baseline": 5,
+    "02_diversity_permanova_Diversity_PERMANOVA": 6,
+    "03_differential_abundance_Differential_abundance_trajectory": 7,
+    "04_transmission_and_strain_Transmission_strain_persistence": 7,
+    "05_functional_cazy_kegg_Functional_CAZy_KEGG": 15,
+    "06_benchmarking_methods_Benchmarking_methods": 2,
+    "07_supporting_tables_data_Supporting_tables_data": 1
+  },
+  "issue_types": {}
+}
