@@ -1,6 +1,6 @@
 TJBCmeta
 Reproducible analysis code for the Tianjin Birth Cohort (TJBC) maternal–infant metagenomic study. The repository contains scripts used for metadata processing, microbiome diversity analysis, differential-abundance modelling, strain-level transmission inference, CAZy/KEGG functional analysis, benchmarking, and supporting tables/figures.
-> **Important:** This repository contains analysis scripts and workflow templates. The individual-level cohort data, large intermediate objects, and raw metagenomic files are not bundled because they may contain sensitive human-subject information. To reproduce the full analyses, users must prepare the required input files locally and update the hard-coded project paths in the scripts.
+> **Important:** This repository contains analysis scripts and workflow templates. The individual-level cohort data, large intermediate objects, and raw metagenomic files are not bundled because they may contain sensitive human-subject information, and are too large. To reproduce the full analyses, users must prepare the required input files locally and update the hard-coded project paths in the scripts.
 ---
 Repository structure
 ```text
